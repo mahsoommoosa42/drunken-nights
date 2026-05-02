@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Drunk Games Night</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <div class="floating-icons" aria-hidden="true" id="floating-icons"></div>
+
+  <!-- ============ HOME ============ -->
+  <div id="screen-home" class="screen active">
+    <div class="home-wrap">
+      <h1 class="logo">Drunk Games<br><span class="accent">Night</span></h1>
+      <p class="tagline">Create a room. Share the code. Let the chaos begin.</p>
+
+      <div class="card home-card">
+        <input type="text" id="input-name" class="input" placeholder="Your name" maxlength="16" />
+
+        <div class="btn-group">
+          <button id="btn-create" class="btn btn-primary">Create Room</button>
+          <span class="or-divider">or</span>
+          <div class="join-row">
+            <input type="text" id="input-code" class="input input-code" placeholder="Room code" maxlength="5" />
+            <button id="btn-join" class="btn btn-secondary">Join</button>
+          </div>
+        </div>
+      </div>
+
+      <p class="disclaimer">Drink responsibly. 21+ only. Know your limits.</p>
+    </div>
+  </div>
+
+  <!-- ============ LOBBY ============ -->
+  <div id="screen-lobby" class="screen">
+    <div class="lobby-wrap">
+      <h2 class="lobby-title">Room: <span id="lobby-code" class="accent"></span></h2>
+      <p class="lobby-hint">Share the code with your friends!</p>
+
+      <div class="card players-card">
+        <h3>Players</h3>
+        <div id="player-list" class="player-list"></div>
+      </div>
+
+      <h3 class="section-title">Pick a Game</h3>
+      <div id="game-grid" class="game-grid"></div>
+    </div>
+  </div>
+
+  <!-- ============ GAME ============ -->
+  <div id="screen-game" class="screen">
+    <nav class="game-nav">
+      <button id="btn-back-lobby" class="btn btn-ghost">&larr; Lobby</button>
+      <h2 id="game-title" class="nav-title"></h2>
+      <div class="spacer"></div>
+    </nav>
+    <div id="game-area" class="game-area"></div>
+  </div>
+
+  <!-- ============ TOAST ============ -->
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
