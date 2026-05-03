@@ -401,6 +401,7 @@ function renderRound(msg) {
         <div class="turn-label">Trivia</div>
         <div class="prompt">${msg.question}</div>
         <div class="trivia-grid" id="trivia-opts">${opts}</div>
+        <p class="sub-text" id="vote-status"></p>
       </div>
     `;
   }
@@ -573,28 +574,38 @@ function renderReveal(msg) {
 
   else if (gid === "trivia") {
     const correct = msg.correct_index;
-    document.querySelectorAll("#trivia-opts .option-btn").forEach((btn, i) => {
-      btn.disabled = true;
-      if (i === correct) btn.classList.add("correct");
-      else btn.classList.add("wrong");
-    });
+    const opts = msg.options || [];
     const wrongPlayers = Object.entries(msg.results).filter(([,v]) => !v).map(([n]) => n);
     const rightPlayers = Object.entries(msg.results).filter(([,v]) => v).map(([n]) => n);
-    const extra = document.createElement("div");
-    extra.className = "result-section";
-    extra.innerHTML = `
-      ${wrongPlayers.length > 0
-        ? `<div class="drink-banner">${wrongPlayers.join(", ")} — DRINK!</div>`
-        : '<div class="drink-banner" style="color:var(--green)">Everyone got it right! 🎉</div>'}
-      ${isHost ? '<div class="btn-row" style="margin-top:1rem"><button class="btn btn-primary" onclick="nextRound()">Next Question</button></div>' : ''}
+
+    // Build per-option breakdown showing who picked what
+    const optBreakdown = (opts.length > 0 ? opts : ["A","B","C","D"]).map((opt, i) => {
+      const pickers = Object.entries(msg.choices || {}).filter(([,c]) => c === i).map(([n]) => n);
+      const isCorrect = i === correct;
+      return pickers.length > 0 ? `<div class="result-section" style="padding:.4rem 0;border:none;">
+        <div class="result-label" style="font-size:.85rem;">${isCorrect ? '✅' : '❌'} ${opt}</div>
+        <div class="result-names">${pickers.map(n => `<span class="name-tag ${isCorrect ? '' : 'drinker'}">${n}</span>`).join("")}</div>
+      </div>` : '';
+    }).join("");
+
+    area.innerHTML = `
+      <div class="game-card">
+        <div class="turn-label">Trivia Results</div>
+        <div class="prompt" style="font-size:1.1rem">${msg.question || ''}</div>
+        ${optBreakdown}
+        ${wrongPlayers.length > 0
+          ? `<div class="drink-banner">${wrongPlayers.join(", ")} — DRINK!</div>`
+          : '<div class="drink-banner" style="color:var(--green)">Everyone got it right! 🎉</div>'}
+        ${isHost ? '<div class="btn-row" style="margin-top:1rem"><button class="btn btn-primary" onclick="nextRound()">Next Question</button></div>' : ''}
+      </div>
     `;
-    document.querySelector(".game-card").appendChild(extra);
   }
 
   else if (gid === "hot_takes") {
     const agreeNames = msg.agree.map(n => `<span class="name-tag">${n}</span>`).join("");
     const disagreeNames = msg.disagree.map(n => `<span class="name-tag">${n}</span>`).join("");
     const minNames = msg.minority.map(n => `<span class="name-tag drinker">${n} 🍺</span>`).join("");
+    const allNames = [...msg.agree, ...msg.disagree].map(n => `<span class="name-tag drinker">${n} 🍺</span>`).join("");
     area.innerHTML = `
       <div class="game-card">
         <div class="turn-label">Hot Take Results</div>
@@ -607,9 +618,9 @@ function renderReveal(msg) {
           <div class="result-label">👎 Disagree (${msg.disagree.length})</div>
           <div class="result-names">${disagreeNames || '<em>Nobody</em>'}</div>
         </div>
-        ${msg.minority.length > 0
-          ? `<div class="drink-banner">Minority drinks!</div><div class="result-section"><div class="result-names">${minNames}</div></div>`
-          : '<div class="drink-banner">It\'s a tie! Everyone drinks!</div>'}
+        ${msg.tied
+          ? `<div class="drink-banner">It's a tie! Everyone drinks!</div><div class="result-section"><div class="result-names">${allNames}</div></div>`
+          : `<div class="drink-banner">Minority drinks!</div><div class="result-section"><div class="result-names">${minNames}</div></div>`}
         ${isHost ? '<div class="btn-row"><button class="btn btn-primary" onclick="nextRound()">Next Take</button></div>' : ''}
       </div>
     `;

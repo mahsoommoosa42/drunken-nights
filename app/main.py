@@ -266,6 +266,8 @@ async def send_next_round(room: Room) -> None:
         deck = room.ensure_deck("trivia", _pick(room, "trivia"))
         q = deck.draw()
         g.data["answer"] = q["answer"]
+        g.data["question"] = q["q"]
+        g.data["options"] = q["options"]
         await broadcast(room, {
             "type": "round",
             "game": gid,
@@ -358,6 +360,8 @@ async def handle_game_action(room: Room, player_name: str, data: dict) -> None:
     gid = g.game_id
     action = data.get("action", "")
 
+    connected_count = len(room.connected_players)
+
     if gid == "truth_or_dare" and action == "pick":
         sp = room.spicy_mode
         choice = data.get("choice", "truth")
@@ -380,7 +384,7 @@ async def handle_game_action(room: Room, player_name: str, data: dict) -> None:
     elif gid == "never_have_i_ever" and action == "drink":
         drank = data.get("drank", False)
         g.answers[player_name] = "drank" if drank else "safe"
-        if len(g.answers) >= len(room.players):
+        if len(g.answers) >= connected_count:
             drinkers = [n for n, v in g.answers.items() if v == "drank"]
             await broadcast(room, {
                 "type": "reveal",
@@ -392,10 +396,14 @@ async def handle_game_action(room: Room, player_name: str, data: dict) -> None:
     elif gid == "would_you_rather" and action == "vote":
         choice = data.get("choice", "a")
         g.votes[player_name] = choice
-        if len(g.votes) >= len(room.players):
+        if len(g.votes) >= connected_count:
             a_voters = [n for n, v in g.votes.items() if v == "a"]
             b_voters = [n for n, v in g.votes.items() if v == "b"]
-            minority = a_voters if len(a_voters) <= len(b_voters) else b_voters
+            tied = len(a_voters) == len(b_voters)
+            if tied:
+                minority = []
+            else:
+                minority = a_voters if len(a_voters) < len(b_voters) else b_voters
             await broadcast(room, {
                 "type": "reveal",
                 "game": gid,
@@ -413,9 +421,9 @@ async def handle_game_action(room: Room, player_name: str, data: dict) -> None:
             "type": "vote_update",
             "game": gid,
             "votes_in": len(g.votes),
-            "total": len(room.players),
+            "total": connected_count,
         })
-        if len(g.votes) >= len(room.players):
+        if len(g.votes) >= connected_count:
             tally: dict[str, int] = {}
             for v in g.votes.values():
                 tally[v] = tally.get(v, 0) + 1
@@ -432,31 +440,47 @@ async def handle_game_action(room: Room, player_name: str, data: dict) -> None:
     elif gid == "trivia" and action == "answer":
         answer_idx = data.get("answer", -1)
         g.answers[player_name] = str(answer_idx)
-        if len(g.answers) >= len(room.players):
+        await broadcast(room, {
+            "type": "vote_update",
+            "game": gid,
+            "votes_in": len(g.answers),
+            "total": connected_count,
+        })
+        if len(g.answers) >= connected_count:
             correct = g.data.get("answer", -1)
             results: dict[str, bool] = {}
+            choices: dict[str, int] = {}
             for n, a in g.answers.items():
                 results[n] = int(a) == correct
+                choices[n] = int(a)
             await broadcast(room, {
                 "type": "reveal",
                 "game": gid,
                 "correct_index": correct,
                 "results": results,
+                "choices": choices,
+                "question": g.data.get("question", ""),
+                "options": g.data.get("options", []),
             })
 
     elif gid == "hot_takes" and action == "vote":
         choice = data.get("choice", "agree")
         g.votes[player_name] = choice
-        if len(g.votes) >= len(room.players):
+        if len(g.votes) >= len(room.connected_players):
             agree = [n for n, v in g.votes.items() if v == "agree"]
             disagree = [n for n, v in g.votes.items() if v == "disagree"]
-            minority = agree if len(agree) <= len(disagree) else disagree
+            tied = len(agree) == len(disagree)
+            if tied:
+                minority = []
+            else:
+                minority = agree if len(agree) < len(disagree) else disagree
             await broadcast(room, {
                 "type": "reveal",
                 "game": gid,
                 "agree": agree,
                 "disagree": disagree,
                 "minority": minority,
+                "tied": tied,
                 "take": g.data.get("take", ""),
             })
 
