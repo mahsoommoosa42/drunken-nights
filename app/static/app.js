@@ -10,12 +10,16 @@ let gameCatalog = [];
 let players = [];
 let currentGame = "";
 let hasVoted = false;
+let spicyMode = false;
 
 // ─── DOM refs ────────────────────────────────────────────────────────────
 const $ = (sel) => document.querySelector(sel);
-const screenHome = $("#screen-home");
+const screenLanding = $("#screen-landing");
+const screenCreate = $("#screen-create");
+const screenJoin = $("#screen-join");
 const screenLobby = $("#screen-lobby");
 const screenGame = $("#screen-game");
+const allScreens = [screenLanding, screenCreate, screenJoin, screenLobby, screenGame];
 const toastEl = $("#toast");
 
 // ─── Floating Icons ──────────────────────────────────────────────────────
@@ -37,7 +41,7 @@ spawnFloatingIcons();
 
 // ─── Screens ─────────────────────────────────────────────────────────────
 function showScreen(el) {
-  [screenHome, screenLobby, screenGame].forEach(s => s.classList.remove("active"));
+  allScreens.forEach(s => s.classList.remove("active"));
   el.classList.add("active");
   window.scrollTo(0, 0);
 }
@@ -77,8 +81,11 @@ function handleMessage(msg) {
       roomCode = msg.room_code;
       players = msg.players;
       isHost = msg.host === myName;
+      spicyMode = msg.spicy_mode || false;
       renderLobby(msg);
-      if (screenHome.classList.contains("active")) showScreen(screenLobby);
+      renderSpicyToggle();
+      if (gameCatalog.length > 0) renderGameGrid();
+      if (!screenLobby.classList.contains("active") && !screenGame.classList.contains("active")) showScreen(screenLobby);
       break;
     case "game_catalog":
       gameCatalog = msg.games;
@@ -112,22 +119,38 @@ function handleMessage(msg) {
         toast("You are now the host!");
       }
       break;
+    case "host_transferred":
+      if (msg.new_host === myName) {
+        isHost = true;
+        toast(`🎉 You are now the host! (${msg.old_host} didn't reconnect)`, 5000);
+        renderSpicyToggle();
+        if (gameCatalog.length > 0) renderGameGrid();
+      } else {
+        toast(`${msg.new_host} is now the host (${msg.old_host} timed out)`);
+      }
+      break;
     case "chat":
       // Future: in-game chat
       break;
   }
 }
 
-// ─── Home Buttons ────────────────────────────────────────────────────────
+// ─── Navigation Buttons ──────────────────────────────────────────────────
+$("#btn-go-create").addEventListener("click", () => showScreen(screenCreate));
+$("#btn-go-join").addEventListener("click", () => showScreen(screenJoin));
+$("#btn-back-create").addEventListener("click", () => showScreen(screenLanding));
+$("#btn-back-join").addEventListener("click", () => showScreen(screenLanding));
+
+// ─── Create / Join Buttons ───────────────────────────────────────────────
 $("#btn-create").addEventListener("click", () => {
-  const name = $("#input-name").value.trim();
+  const name = $("#input-name-create").value.trim();
   if (!name) { toast("Enter your name!"); return; }
   myName = name;
   connect("NEW", name);
 });
 
 $("#btn-join").addEventListener("click", () => {
-  const name = $("#input-name").value.trim();
+  const name = $("#input-name-join").value.trim();
   const code = $("#input-code").value.trim().toUpperCase();
   if (!name) { toast("Enter your name!"); return; }
   if (!code || code.length < 4) { toast("Enter a valid room code!"); return; }
@@ -135,17 +158,40 @@ $("#btn-join").addEventListener("click", () => {
   connect(code, name);
 });
 
-$("#input-name").addEventListener("keydown", (e) => {
+$("#input-name-create").addEventListener("keydown", (e) => {
   if (e.key === "Enter") $("#btn-create").click();
 });
 $("#input-code").addEventListener("keydown", (e) => {
   if (e.key === "Enter") $("#btn-join").click();
+});
+$("#input-name-join").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") $("#input-code").focus();
 });
 
 $("#btn-back-lobby").addEventListener("click", () => {
   if (isHost) wsSend({ type: "return_to_lobby" });
   else toast("Only the host can return to lobby");
 });
+
+// Copy room link
+$("#btn-copy-link").addEventListener("click", () => {
+  const url = `${location.origin}?room=${roomCode}`;
+  navigator.clipboard.writeText(url).then(() => {
+    toast("Link copied!");
+    $("#btn-copy-link").textContent = "Copied!";
+    setTimeout(() => { $("#btn-copy-link").textContent = "📋 Copy Link"; }, 2000);
+  }).catch(() => toast("Failed to copy"));
+});
+
+// Auto-fill room code from URL and go straight to Join screen
+(function prefillRoom() {
+  const params = new URLSearchParams(location.search);
+  const code = params.get("room");
+  if (code) {
+    $("#input-code").value = code.toUpperCase();
+    showScreen(screenJoin);
+  }
+})();
 
 // ─── Lobby Rendering ─────────────────────────────────────────────────────
 function renderLobby(msg) {
@@ -182,6 +228,35 @@ function renderGameGrid() {
     grid.appendChild(tile);
   });
 }
+
+// ─── Spicy Mode Toggle ──────────────────────────────────────────────────
+function renderSpicyToggle() {
+  const wrap = $("#spicy-toggle-wrap");
+  const btn = $("#btn-spicy-toggle");
+  const icon = $("#spicy-icon");
+  const label = $("#spicy-label");
+  const hint = $("#spicy-hint");
+  wrap.style.display = "";
+  if (spicyMode) {
+    btn.classList.add("active");
+    icon.textContent = "🔥";
+    label.textContent = "18+ Mode ON";
+    hint.textContent = "Spicy prompts are mixed in!";
+  } else {
+    btn.classList.remove("active");
+    icon.textContent = "🌶️";
+    label.textContent = "Enable 18+ Mode";
+    hint.textContent = "Only the host can toggle this";
+  }
+  btn.disabled = !isHost;
+  btn.style.opacity = isHost ? "1" : "0.5";
+  btn.style.cursor = isHost ? "pointer" : "not-allowed";
+}
+
+$("#btn-spicy-toggle").addEventListener("click", () => {
+  if (!isHost) { toast("Only the host can toggle 18+ mode"); return; }
+  wsSend({ type: "toggle_spicy" });
+});
 
 // ─── Round Rendering ─────────────────────────────────────────────────────
 function renderRound(msg) {
