@@ -122,12 +122,20 @@ function handleMessage(msg) {
     case "host_transferred":
       if (msg.new_host === myName) {
         isHost = true;
-        toast(`🎉 You are now the host! (${msg.old_host} didn't reconnect)`, 5000);
+        toast(`🎉 You are now the host! (${msg.old_host} transferred host)`, 5000);
         renderSpicyToggle();
+        renderHostControls();
         if (gameCatalog.length > 0) renderGameGrid();
       } else {
-        toast(`${msg.new_host} is now the host (${msg.old_host} timed out)`);
+        isHost = (msg.new_host === myName);
+        toast(`${msg.new_host} is now the host`);
+        renderHostControls();
       }
+      break;
+    case "room_closed":
+      toast(msg.reason || "Room has been closed.", 5000);
+      if (ws) ws.close();
+      showScreen(screenLanding);
       break;
     case "chat":
       // Future: in-game chat
@@ -173,6 +181,21 @@ $("#btn-back-lobby").addEventListener("click", () => {
   else toast("Only the host can return to lobby");
 });
 
+// Transfer host
+$("#btn-transfer-host").addEventListener("click", () => {
+  const target = $("#transfer-target").value;
+  if (!target) return;
+  wsSend({ type: "transfer_host", target });
+});
+
+// Leave room
+$("#btn-leave-room").addEventListener("click", () => {
+  if (confirm("Leave this room?")) {
+    wsSend({ type: "leave_room" });
+    showScreen(screenLanding);
+  }
+});
+
 // Copy room link
 $("#btn-copy-link").addEventListener("click", () => {
   const url = `${location.origin}?room=${roomCode}`;
@@ -203,6 +226,24 @@ function renderLobby(msg) {
     chip.className = "player-chip";
     chip.innerHTML = name + (name === msg.host ? ' <span class="host-badge">HOST</span>' : "");
     list.appendChild(chip);
+  });
+  renderHostControls();
+}
+
+function renderHostControls() {
+  const wrap = $("#host-controls");
+  const select = $("#transfer-target");
+  if (!isHost || players.length < 2) {
+    wrap.style.display = "none";
+    return;
+  }
+  wrap.style.display = "flex";
+  select.innerHTML = "";
+  players.filter(n => n !== myName).forEach(name => {
+    const opt = document.createElement("option");
+    opt.value = name;
+    opt.textContent = name;
+    select.appendChild(opt);
   });
 }
 

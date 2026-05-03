@@ -13,18 +13,13 @@ from typing import Any
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
+from pydantic import BaseModel
 
-from app.game_data import (
-    TRUTHS, DARES, NEVER_HAVE_I_EVER, WOULD_YOU_RATHER,
-    KINGS_CUP_RULES, SUITS, SUIT_SYMBOLS,
-    MOST_LIKELY_TO, CATEGORIES, TRIVIA, HOT_TAKES,
-    TABOO_WORDS, TWO_TRUTHS_PROMPTS, RHYME_STARTERS,
-    WORD_ASSOCIATION_STARTERS, ShuffledDeck,
-    TRUTHS_SPICY, DARES_SPICY, NEVER_HAVE_I_EVER_SPICY,
-    WOULD_YOU_RATHER_SPICY, MOST_LIKELY_TO_SPICY, CATEGORIES_SPICY,
-    HOT_TAKES_SPICY, TABOO_WORDS_SPICY, TWO_TRUTHS_PROMPTS_SPICY,
-    RHYME_STARTERS_SPICY, WORD_ASSOCIATION_STARTERS_SPICY,
+from app.game_data import KINGS_CUP_RULES, SUITS, SUIT_SYMBOLS, ShuffledDeck
+from app.database import (
+    init_db, seed_from_game_data, get_content,
+    add_content, replace_content, delete_content, count_content,
 )
 
 app = FastAPI(title="Drunk Games Night")
@@ -33,8 +28,9 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 # ─── Data Structures ─────────────────────────────────────────────────────────
 
-ROOM_EXPIRY_SECONDS = 300  # 5 min grace period for empty rooms
-HOST_TRANSFER_SECONDS = 120  # 2 min before host is transferred
+ROOM_EXPIRY_SECONDS = 300       # 5 min grace period for empty rooms
+HOST_TRANSFER_SECONDS = 120     # 2 min before host is transferred
+INACTIVITY_TIMEOUT = 30 * 60    # 30 min inactivity timeout
 
 @dataclass
 class Player:
@@ -170,11 +166,12 @@ async def start_game(room: Room, game_id: str) -> None:
     await broadcast(room, {"type": "game_start", "game_id": game_id})
     await send_next_round(room)
 
-def _pick(room: Room, normal: list, spicy: list) -> list:
-    """Return combined list when spicy mode is on, otherwise normal."""
+def _pick(room: Room, game: str) -> list:
+    """Load content from DB. Combines normal+spicy when spicy mode is on."""
+    items = get_content(game, "normal")
     if room.spicy_mode:
-        return normal + spicy
-    return normal
+        items = items + get_content(game, "spicy")
+    return items
 
 async def send_next_round(room: Room) -> None:
     g = room.game
@@ -195,7 +192,7 @@ async def send_next_round(room: Room) -> None:
 
     elif gid == "never_have_i_ever":
         key = "nhie_s" if sp else "nhie"
-        deck = room.ensure_deck(key, _pick(room, NEVER_HAVE_I_EVER, NEVER_HAVE_I_EVER_SPICY))
+        deck = room.ensure_deck(key, _pick(room, "never_have_i_ever"))
         statement = deck.draw()
         await broadcast(room, {
             "type": "round",
@@ -206,7 +203,7 @@ async def send_next_round(room: Room) -> None:
 
     elif gid == "would_you_rather":
         key = "wyr_s" if sp else "wyr"
-        deck = room.ensure_deck(key, _pick(room, WOULD_YOU_RATHER, WOULD_YOU_RATHER_SPICY))
+        deck = room.ensure_deck(key, _pick(room, "would_you_rather"))
         pair = deck.draw()
         g.data["options"] = list(pair)
         await broadcast(room, {
@@ -239,7 +236,7 @@ async def send_next_round(room: Room) -> None:
 
     elif gid == "most_likely_to":
         key = "mlt_s" if sp else "mlt"
-        deck = room.ensure_deck(key, _pick(room, MOST_LIKELY_TO, MOST_LIKELY_TO_SPICY))
+        deck = room.ensure_deck(key, _pick(room, "most_likely_to"))
         scenario = deck.draw()
         g.data["scenario"] = scenario
         await broadcast(room, {
@@ -252,7 +249,7 @@ async def send_next_round(room: Room) -> None:
 
     elif gid == "categories":
         key = "cat_s" if sp else "cat"
-        deck = room.ensure_deck(key, _pick(room, CATEGORIES, CATEGORIES_SPICY))
+        deck = room.ensure_deck(key, _pick(room, "categories"))
         category = deck.draw()
         g.data["category"] = category
         g.timer_end = time.time() + 30
@@ -266,7 +263,7 @@ async def send_next_round(room: Room) -> None:
         })
 
     elif gid == "trivia":
-        deck = room.ensure_deck("trivia", TRIVIA)
+        deck = room.ensure_deck("trivia", _pick(room, "trivia"))
         q = deck.draw()
         g.data["answer"] = q["answer"]
         await broadcast(room, {
@@ -279,7 +276,7 @@ async def send_next_round(room: Room) -> None:
 
     elif gid == "hot_takes":
         key = "ht_s" if sp else "ht"
-        deck = room.ensure_deck(key, _pick(room, HOT_TAKES, HOT_TAKES_SPICY))
+        deck = room.ensure_deck(key, _pick(room, "hot_takes"))
         take = deck.draw()
         g.data["take"] = take
         await broadcast(room, {
@@ -291,7 +288,7 @@ async def send_next_round(room: Room) -> None:
 
     elif gid == "taboo":
         key = "taboo_s" if sp else "taboo"
-        deck = room.ensure_deck(key, _pick(room, TABOO_WORDS, TABOO_WORDS_SPICY))
+        deck = room.ensure_deck(key, _pick(room, "taboo"))
         card = deck.draw()
         g.data["word"] = card["word"]
         g.data["forbidden"] = card["forbidden"]
@@ -321,7 +318,7 @@ async def send_next_round(room: Room) -> None:
 
     elif gid == "two_truths":
         key = "tt_s" if sp else "tt"
-        deck = room.ensure_deck(key, _pick(room, TWO_TRUTHS_PROMPTS, TWO_TRUTHS_PROMPTS_SPICY))
+        deck = room.ensure_deck(key, _pick(room, "two_truths"))
         prompt = deck.draw()
         await broadcast(room, {
             "type": "round",
@@ -333,7 +330,7 @@ async def send_next_round(room: Room) -> None:
 
     elif gid == "rhyme_time":
         key = "rt_s" if sp else "rt"
-        deck = room.ensure_deck(key, _pick(room, RHYME_STARTERS, RHYME_STARTERS_SPICY))
+        deck = room.ensure_deck(key, _pick(room, "rhyme_starters"))
         word = deck.draw()
         await broadcast(room, {
             "type": "round",
@@ -345,7 +342,7 @@ async def send_next_round(room: Room) -> None:
 
     elif gid == "word_association":
         key = "wa_s" if sp else "wa"
-        deck = room.ensure_deck(key, _pick(room, WORD_ASSOCIATION_STARTERS, WORD_ASSOCIATION_STARTERS_SPICY))
+        deck = room.ensure_deck(key, _pick(room, "word_association"))
         word = deck.draw()
         await broadcast(room, {
             "type": "round",
@@ -366,11 +363,11 @@ async def handle_game_action(room: Room, player_name: str, data: dict) -> None:
         choice = data.get("choice", "truth")
         if choice == "truth":
             key = "truths_s" if sp else "truths"
-            deck = room.ensure_deck(key, _pick(room, TRUTHS, TRUTHS_SPICY))
+            deck = room.ensure_deck(key, _pick(room, "truths"))
             prompt = deck.draw()
         else:
             key = "dares_s" if sp else "dares"
-            deck = room.ensure_deck(key, _pick(room, DARES, DARES_SPICY))
+            deck = room.ensure_deck(key, _pick(room, "dares"))
             prompt = deck.draw()
         await broadcast(room, {
             "type": "reveal",
@@ -525,6 +522,7 @@ async def websocket_endpoint(ws: WebSocket, room_code: str, player_name: str):
             raw = await ws.receive_text()
             data = json.loads(raw)
             msg_type = data.get("type", "")
+            room.last_activity = time.time()
 
             if msg_type == "toggle_spicy":
                 if player.is_host or player == room.host:
@@ -546,6 +544,44 @@ async def websocket_endpoint(ws: WebSocket, room_code: str, player_name: str):
                     "player": player_name,
                     "message": data.get("message", ""),
                 })
+
+            elif msg_type == "transfer_host":
+                target_name = data.get("target", "")
+                if (player.is_host or player == room.host) and target_name:
+                    target = room.get_player(target_name)
+                    if target and target.connected and target != player:
+                        player.is_host = False
+                        target.is_host = True
+                        await broadcast_lobby(room)
+                        await broadcast(room, {
+                            "type": "host_transferred",
+                            "old_host": player.name,
+                            "new_host": target.name,
+                        })
+
+            elif msg_type == "leave_room":
+                player.connected = False
+                player.ws = None
+                room.players = [p for p in room.players if p.name != player.name]
+                room.last_activity = time.time()
+                if player.is_host and room.connected_players:
+                    new_host = room.connected_players[0]
+                    new_host.is_host = True
+                    await broadcast_lobby(room)
+                    await broadcast(room, {
+                        "type": "host_transferred",
+                        "old_host": player.name,
+                        "new_host": new_host.name,
+                    })
+                elif room.connected_players:
+                    await broadcast_lobby(room)
+                await broadcast(room, {
+                    "type": "player_left",
+                    "player": player.name,
+                    "new_host": room.host.name if room.host else "",
+                })
+                await ws.close()
+                return
 
             elif msg_type == "return_to_lobby":
                 if player.is_host or player == room.host:
@@ -606,24 +642,66 @@ def _cancel_host_transfer(room: Room) -> None:
 # ─── Room Cleanup ────────────────────────────────────────────────────────────
 
 async def cleanup_rooms():
-    """Periodically remove rooms where all players disconnected."""
+    """Periodically remove empty rooms and inactive rooms (30 min timeout)."""
     while True:
         await asyncio.sleep(60)
         now = time.time()
-        expired = [
-            code for code, room in rooms.items()
-            if not room.connected_players
-            and (now - room.last_activity) > ROOM_EXPIRY_SECONDS
-        ]
+        expired = []
+        for code, room in rooms.items():
+            if not room.connected_players and (now - room.last_activity) > ROOM_EXPIRY_SECONDS:
+                expired.append(code)
+            elif (now - room.last_activity) > INACTIVITY_TIMEOUT:
+                asyncio.create_task(broadcast(room, {
+                    "type": "room_closed",
+                    "reason": "Room closed due to 30 minutes of inactivity.",
+                }))
+                expired.append(code)
         for code in expired:
             rooms.pop(code, None)
 
 @app.on_event("startup")
 async def startup():
+    init_db()
+    seed_from_game_data()
     asyncio.create_task(cleanup_rooms())
 
 
 # ─── Static Files ────────────────────────────────────────────────────────────
+
+class ContentPayload(BaseModel):
+    game: str
+    pool: str = "normal"
+    items: list
+
+
+@app.get("/api/content")
+async def api_content_list(game: str | None = None):
+    return JSONResponse(count_content(game))
+
+
+@app.get("/api/content/{game}/{pool}")
+async def api_content_get(game: str, pool: str = "normal"):
+    items = get_content(game, pool)
+    return JSONResponse({"game": game, "pool": pool, "count": len(items), "items": items})
+
+
+@app.post("/api/content")
+async def api_content_add(payload: ContentPayload):
+    count = add_content(payload.game, payload.pool, payload.items)
+    return JSONResponse({"added": count, "game": payload.game, "pool": payload.pool})
+
+
+@app.put("/api/content")
+async def api_content_replace(payload: ContentPayload):
+    count = replace_content(payload.game, payload.pool, payload.items)
+    return JSONResponse({"replaced": count, "game": payload.game, "pool": payload.pool})
+
+
+@app.delete("/api/content/{game}")
+async def api_content_delete(game: str, pool: str | None = None):
+    count = delete_content(game, pool)
+    return JSONResponse({"deleted": count, "game": game, "pool": pool})
+
 
 @app.get("/")
 async def index():

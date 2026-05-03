@@ -203,6 +203,36 @@ body::before {
   font-weight: 800;
   text-transform: uppercase;
 }
+.host-controls {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  margin-top: .75rem;
+  padding-top: .75rem;
+  border-top: 1px solid rgba(255,255,255,.08);
+}
+.input-select {
+  flex: 1;
+  padding: .5rem .75rem;
+  font-size: .85rem;
+  background: rgba(255,255,255,.08);
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 8px;
+  color: var(--text);
+  appearance: auto;
+}
+.lobby-actions {
+  text-align: center;
+  margin-bottom: 1rem;
+}
+.btn-leave {
+  color: var(--red);
+  border-color: rgba(239,68,68,.3);
+}
+.btn-leave:hover {
+  background: rgba(239,68,68,.1);
+  border-color: var(--red);
+}
 
 /* ─── Spicy Mode Toggle ──────────────────────────────────────────────── */
 .spicy-toggle-wrap {
