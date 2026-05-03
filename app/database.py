@@ -123,55 +123,46 @@ def is_seeded() -> bool:
     return row["cnt"] > 0
 
 
+CONTENT_DIR = Path(__file__).parent.parent / "content"
+
+
+def _load_txt(filepath: Path) -> list[str]:
+    """Load a plain-text file as a list of non-empty lines."""
+    return [line for line in filepath.read_text().strip().split("\n") if line.strip()]
+
+
+def _load_txt_pairs(filepath: Path) -> list[list[str]]:
+    """Load tab-separated pairs from a text file."""
+    pairs = []
+    for line in filepath.read_text().strip().split("\n"):
+        if "\t" in line:
+            pairs.append(line.split("\t", 1))
+    return pairs
+
+
+def _load_jsonl(filepath: Path) -> list[Any]:
+    """Load a JSONL file as a list of parsed objects."""
+    return [json.loads(line) for line in filepath.read_text().strip().split("\n") if line.strip()]
+
+
 def seed_from_game_data() -> None:
-    """Populate DB from the game_data module (only if empty)."""
+    """Populate DB from content/ text files (only if empty)."""
     if is_seeded():
         return
 
-    from app.game_data import (
-        TRUTHS, DARES, NEVER_HAVE_I_EVER, WOULD_YOU_RATHER,
-        MOST_LIKELY_TO, CATEGORIES, TRIVIA, HOT_TAKES,
-        TABOO_WORDS, TWO_TRUTHS_PROMPTS, RHYME_STARTERS,
-        WORD_ASSOCIATION_STARTERS,
-        TRUTHS_SPICY, DARES_SPICY, NEVER_HAVE_I_EVER_SPICY,
-        WOULD_YOU_RATHER_SPICY, MOST_LIKELY_TO_SPICY, CATEGORIES_SPICY,
-        HOT_TAKES_SPICY, TABOO_WORDS_SPICY, TWO_TRUTHS_PROMPTS_SPICY,
-        RHYME_STARTERS_SPICY, WORD_ASSOCIATION_STARTERS_SPICY,
-    )
+    for f in sorted(CONTENT_DIR.iterdir()):
+        stem = f.stem  # e.g. "truths_normal", "trivia_spicy"
+        parts = stem.rsplit("_", 1)
+        if len(parts) != 2:
+            continue
+        game, pool = parts
 
-    # Normal pools
-    content_map = {
-        "truths": TRUTHS,
-        "dares": DARES,
-        "never_have_i_ever": NEVER_HAVE_I_EVER,
-        "would_you_rather": [list(pair) for pair in WOULD_YOU_RATHER],
-        "most_likely_to": MOST_LIKELY_TO,
-        "categories": CATEGORIES,
-        "trivia": TRIVIA,
-        "hot_takes": HOT_TAKES,
-        "taboo": TABOO_WORDS,
-        "two_truths": TWO_TRUTHS_PROMPTS,
-        "rhyme_starters": RHYME_STARTERS,
-        "word_association": WORD_ASSOCIATION_STARTERS,
-    }
+        if f.suffix == ".jsonl":
+            items = _load_jsonl(f)
+        elif game == "would_you_rather":
+            items = _load_txt_pairs(f)
+        else:
+            items = _load_txt(f)
 
-    # Spicy pools
-    spicy_map = {
-        "truths": TRUTHS_SPICY,
-        "dares": DARES_SPICY,
-        "never_have_i_ever": NEVER_HAVE_I_EVER_SPICY,
-        "would_you_rather": [list(pair) for pair in WOULD_YOU_RATHER_SPICY],
-        "most_likely_to": MOST_LIKELY_TO_SPICY,
-        "categories": CATEGORIES_SPICY,
-        "hot_takes": HOT_TAKES_SPICY,
-        "taboo": TABOO_WORDS_SPICY,
-        "two_truths": TWO_TRUTHS_PROMPTS_SPICY,
-        "rhyme_starters": RHYME_STARTERS_SPICY,
-        "word_association": WORD_ASSOCIATION_STARTERS_SPICY,
-    }
-
-    for game, items in content_map.items():
-        add_content(game, "normal", items)
-
-    for game, items in spicy_map.items():
-        add_content(game, "spicy", items)
+        if items:
+            add_content(game, pool, items)

@@ -1,0 +1,100 @@
+{"word": "Hangover", "forbidden": ["Drink", "Morning", "Headache", "Alcohol", "Party"]}
+{"word": "Karaoke", "forbidden": ["Sing", "Song", "Microphone", "Bar", "Music"]}
+{"word": "Selfie", "forbidden": ["Photo", "Camera", "Phone", "Picture", "Snap"]}
+{"word": "Netflix", "forbidden": ["Stream", "Watch", "Show", "Movie", "Chill"]}
+{"word": "Tinder", "forbidden": ["Swipe", "Date", "Match", "App", "Love"]}
+{"word": "Pizza", "forbidden": ["Cheese", "Slice", "Delivery", "Italian", "Pepperoni"]}
+{"word": "Uber", "forbidden": ["Ride", "Car", "Driver", "App", "Taxi"]}
+{"word": "Tattoo", "forbidden": ["Ink", "Skin", "Needle", "Body", "Permanent"]}
+{"word": "Beach", "forbidden": ["Sand", "Ocean", "Water", "Sun", "Wave"]}
+{"word": "Meme", "forbidden": ["Funny", "Internet", "Picture", "Viral", "Share"]}
+{"word": "Brunch", "forbidden": ["Breakfast", "Lunch", "Morning", "Eggs", "Mimosa"]}
+{"word": "Gym", "forbidden": ["Exercise", "Workout", "Lift", "Fit", "Muscle"]}
+{"word": "Snapchat", "forbidden": ["Snap", "Photo", "Filter", "Story", "Send"]}
+{"word": "Coachella", "forbidden": ["Music", "Festival", "Desert", "California", "Concert"]}
+{"word": "Avocado", "forbidden": ["Green", "Guacamole", "Toast", "Fruit", "Mexican"]}
+{"word": "Champagne", "forbidden": ["Bubbles", "Wine", "Celebrate", "Toast", "French"]}
+{"word": "Podcast", "forbidden": ["Listen", "Audio", "Episode", "Show", "Talk"]}
+{"word": "Road Trip", "forbidden": ["Drive", "Car", "Travel", "Highway", "Journey"]}
+{"word": "Halloween", "forbidden": ["Costume", "Scary", "October", "Candy", "Pumpkin"]}
+{"word": "TikTok", "forbidden": ["Video", "Dance", "App", "Short", "Viral"]}
+{"word": "Margarita", "forbidden": ["Tequila", "Salt", "Lime", "Cocktail", "Mexican"]}
+{"word": "Sushi", "forbidden": ["Fish", "Rice", "Japanese", "Roll", "Raw"]}
+{"word": "Concert", "forbidden": ["Music", "Band", "Live", "Stage", "Tickets"]}
+{"word": "Sunburn", "forbidden": ["Sun", "Red", "Skin", "Burn", "Beach"]}
+{"word": "Gossip", "forbidden": ["Talk", "Secret", "Rumor", "Tell", "Drama"]}
+{"word": "Hangout", "forbidden": ["Friends", "Meet", "Chill", "Together", "Fun"]}
+{"word": "Influencer", "forbidden": ["Social", "Follow", "Famous", "Instagram", "Brand"]}
+{"word": "Karate", "forbidden": ["Martial", "Kick", "Belt", "Fight", "Art"]}
+{"word": "Barbecue", "forbidden": ["Grill", "Meat", "Cook", "Outside", "Summer"]}
+{"word": "Whiskey", "forbidden": ["Bourbon", "Drink", "Alcohol", "Shot", "Barrel"]}
+{"word": "Uber Eats", "forbidden": ["Delivery", "Food", "App", "Order", "Driver"]}
+{"word": "Yoga", "forbidden": ["Stretch", "Pose", "Meditation", "Flexible", "Mat"]}
+{"word": "Bitcoin", "forbidden": ["Crypto", "Money", "Digital", "Mine", "Coin"]}
+{"word": "Escape Room", "forbidden": ["Puzzle", "Lock", "Clue", "Trapped", "Solve"]}
+{"word": "Airbnb", "forbidden": ["Rent", "House", "Travel", "Stay", "Hotel"]}
+{"word": "Binge Watch", "forbidden": ["TV", "Show", "Marathon", "Netflix", "Episodes"]}
+{"word": "Photobomb", "forbidden": ["Photo", "Background", "Ruin", "Picture", "Behind"]}
+{"word": "Black Friday", "forbidden": ["Sale", "Shop", "November", "Deal", "Discount"]}
+{"word": "Karaoke", "forbidden": ["Sing", "Song", "Microphone", "Bar", "Lyrics"]}
+{"word": "Jetlag", "forbidden": ["Tired", "Travel", "Sleep", "Time", "Fly"]}
+{"word": "Potluck", "forbidden": ["Food", "Bring", "Party", "Share", "Dish"]}
+{"word": "Ghosting", "forbidden": ["Ignore", "Text", "Disappear", "Reply", "Date"]}
+{"word": "Influencer", "forbidden": ["Social", "Famous", "Follow", "Post", "Brand"]}
+{"word": "Hangover Cure", "forbidden": ["Drink", "Morning", "Water", "Food", "Headache"]}
+{"word": "Sunburn", "forbidden": ["Sun", "Red", "Skin", "Beach", "Hot"]}
+{"word": "Karaoke", "forbidden": ["Sing", "Song", "Microphone", "Bar", "Stage"]}
+{"word": "Selfie", "forbidden": ["Photo", "Camera", "Phone", "Face", "Picture"]}
+{"word": "Netflix", "forbidden": ["Stream", "Movie", "TV", "Watch", "Show"]}
+{"word": "Emoji", "forbidden": ["Face", "Text", "Smiley", "Phone", "Icon"]}
+{"word": "Brunch", "forbidden": ["Breakfast", "Lunch", "Morning", "Eggs", "Sunday"]}
+{"word": "Podcast", "forbidden": ["Listen", "Audio", "Episode", "Talk", "Host"]}
+{"word": "Influencer", "forbidden": ["Social media", "Follow", "Instagram", "Famous", "Content"]}
+{"word": "Avocado", "forbidden": ["Green", "Toast", "Fruit", "Guacamole", "Pit"]}
+{"word": "Yoga", "forbidden": ["Stretch", "Pose", "Meditate", "Flexible", "Mat"]}
+{"word": "Tattoo", "forbidden": ["Ink", "Skin", "Needle", "Art", "Body"]}
+{"word": "Snapchat", "forbidden": ["Snap", "Photo", "Filter", "Story", "Ghost"]}
+{"word": "Sushi", "forbidden": ["Fish", "Rice", "Japan", "Roll", "Raw"]}
+{"word": "Gym", "forbidden": ["Exercise", "Workout", "Weights", "Fitness", "Muscle"]}
+{"word": "Astronaut", "forbidden": ["Space", "Moon", "NASA", "Rocket", "Star"]}
+{"word": "Dinosaur", "forbidden": ["Extinct", "Fossil", "T-Rex", "Jurassic", "Old"]}
+{"word": "Vampire", "forbidden": ["Blood", "Bite", "Dracula", "Night", "Teeth"]}
+{"word": "Superhero", "forbidden": ["Power", "Cape", "Save", "Marvel", "Comic"]}
+{"word": "Pyramid", "forbidden": ["Egypt", "Triangle", "Ancient", "Sand", "Pharaoh"]}
+{"word": "Rollercoaster", "forbidden": ["Ride", "Theme park", "Fast", "Loop", "Scream"]}
+{"word": "Igloo", "forbidden": ["Ice", "Snow", "Cold", "Eskimo", "Arctic"]}
+{"word": "Trampoline", "forbidden": ["Jump", "Bounce", "Spring", "High", "Backyard"]}
+{"word": "Bluetooth", "forbidden": ["Wireless", "Connect", "Phone", "Speaker", "Headphones"]}
+{"word": "Password", "forbidden": ["Secret", "Login", "Type", "Computer", "Forget"]}
+{"word": "Pirate", "forbidden": ["Ship", "Treasure", "Ocean", "Eye patch", "Sword"]}
+{"word": "Penguin", "forbidden": ["Bird", "Ice", "Black", "White", "Antarctica"]}
+{"word": "Tornado", "forbidden": ["Wind", "Storm", "Spin", "Destroy", "Weather"]}
+{"word": "Chocolate", "forbidden": ["Sweet", "Candy", "Brown", "Cocoa", "Dessert"]}
+{"word": "Skateboard", "forbidden": ["Ride", "Wheels", "Trick", "Park", "Board"]}
+{"word": "Waterfall", "forbidden": ["Water", "Fall", "River", "Nature", "Cliff"]}
+{"word": "Lighthouse", "forbidden": ["Light", "Ocean", "Ship", "Tower", "Coast"]}
+{"word": "Parachute", "forbidden": ["Fall", "Sky", "Jump", "Plane", "Open"]}
+{"word": "Hammock", "forbidden": ["Swing", "Sleep", "Tree", "Relax", "Hang"]}
+{"word": "Microwave", "forbidden": ["Heat", "Kitchen", "Food", "Cook", "Quick"]}
+{"word": "Escalator", "forbidden": ["Stairs", "Move", "Mall", "Up", "Down"]}
+{"word": "Helicopter", "forbidden": ["Fly", "Blade", "Air", "Pilot", "Hover"]}
+{"word": "Cactus", "forbidden": ["Desert", "Spike", "Plant", "Dry", "Green"]}
+{"word": "Telescope", "forbidden": ["Star", "See", "Space", "Lens", "Far"]}
+{"word": "Volcano", "forbidden": ["Lava", "Erupt", "Mountain", "Hot", "Ash"]}
+{"word": "Chameleon", "forbidden": ["Color", "Change", "Lizard", "Blend", "Reptile"]}
+{"word": "Backpack", "forbidden": ["Bag", "Carry", "School", "Back", "Travel"]}
+{"word": "Bubble", "forbidden": ["Pop", "Soap", "Round", "Float", "Air"]}
+{"word": "Jellyfish", "forbidden": ["Ocean", "Sting", "Tentacle", "Swim", "Clear"]}
+{"word": "Popcorn", "forbidden": ["Movie", "Corn", "Butter", "Pop", "Snack"]}
+{"word": "Rainbow", "forbidden": ["Color", "Rain", "Arc", "Sky", "Sun"]}
+{"word": "Compass", "forbidden": ["Direction", "North", "Map", "Navigate", "Point"]}
+{"word": "Boomerang", "forbidden": ["Throw", "Return", "Australia", "Curve", "Catch"]}
+{"word": "Flamingo", "forbidden": ["Pink", "Bird", "Leg", "Stand", "Tropical"]}
+{"word": "Giraffe", "forbidden": ["Tall", "Neck", "Africa", "Spots", "Animal"]}
+{"word": "Kangaroo", "forbidden": ["Jump", "Pouch", "Australia", "Hop", "Baby"]}
+{"word": "Octopus", "forbidden": ["Eight", "Tentacle", "Ocean", "Ink", "Sea"]}
+{"word": "Snowflake", "forbidden": ["Snow", "Cold", "Ice", "Winter", "Unique"]}
+{"word": "Butterfly", "forbidden": ["Wing", "Fly", "Caterpillar", "Color", "Insect"]}
+{"word": "Fireworks", "forbidden": ["Explode", "Sky", "July", "Bang", "Night"]}
+{"word": "Magician", "forbidden": ["Magic", "Trick", "Hat", "Rabbit", "Card"]}
+{"word": "Aquarium", "forbidden": ["Fish", "Water", "Tank", "Glass", "Sea"]}
