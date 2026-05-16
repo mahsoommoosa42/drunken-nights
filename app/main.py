@@ -28,7 +28,7 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 # ─── Data Structures ─────────────────────────────────────────────────────────
 
-ROOM_EXPIRY_SECONDS = 300       # 5 min grace period for empty rooms
+ROOM_EXPIRY_SECONDS = 1800      # 30 min grace period for empty rooms
 HOST_TRANSFER_SECONDS = 120     # 2 min before host is transferred
 INACTIVITY_TIMEOUT = 30 * 60    # 30 min inactivity timeout
 
@@ -38,6 +38,7 @@ class Player:
     ws: WebSocket | None = None
     is_host: bool = False
     connected: bool = True
+    disconnect_time: float = 0.0
 
 @dataclass
 class GameState:
@@ -127,14 +128,20 @@ async def broadcast(room: Room, msg: dict) -> None:
             except Exception:
                 p.connected = False
                 p.ws = None
+                p.disconnect_time = time.time()
 
 async def send(ws: WebSocket, msg: dict) -> None:
     await ws.send_text(json.dumps(msg))
 
 async def broadcast_lobby(room: Room) -> None:
+    all_players = [
+        {"name": p.name, "connected": p.connected}
+        for p in room.players
+    ]
     await broadcast(room, {
         "type": "lobby",
         "players": room.player_names,
+        "all_players": all_players,
         "host": room.host.name if room.host else "",
         "room_code": room.code,
         "spicy_mode": room.spicy_mode,
@@ -296,7 +303,7 @@ async def send_next_round(room: Room) -> None:
         g.data["forbidden"] = card["forbidden"]
         g.timer_end = time.time() + 60
 
-        for p in room.players:
+        for p in room.connected_players:
             if p.name == current:
                 await send(p.ws, {
                     "type": "round",
@@ -506,6 +513,7 @@ async def websocket_endpoint(ws: WebSocket, room_code: str, player_name: str):
     await ws.accept()
 
     # Create or join room
+    existing = None
     if room_code == "NEW":
         code = generate_code()
         room = Room(code=code)
@@ -525,8 +533,8 @@ async def websocket_endpoint(ws: WebSocket, room_code: str, player_name: str):
         if existing:
             existing.ws = ws
             existing.connected = True
+            existing.disconnect_time = 0.0
             player = existing
-            # Cancel host transfer if the host just reconnected
             if player.is_host:
                 _cancel_host_transfer(room)
         else:
@@ -540,6 +548,23 @@ async def websocket_endpoint(ws: WebSocket, room_code: str, player_name: str):
         "type": "game_catalog",
         "games": GAME_CATALOG,
     })
+
+    # If a game is in progress, send the reconnecting player the current state
+    g = room.game
+    if g.game_id:
+        await send(ws, {"type": "game_start", "game_id": g.game_id})
+        await send(ws, {
+            "type": "rejoin_state",
+            "game": g.game_id,
+            "round": g.round_num,
+            "message": "Game in progress — you're back in!",
+        })
+    # Notify others that this player reconnected
+    if existing:
+        await broadcast(room, {
+            "type": "player_reconnected",
+            "player": player_name,
+        })
 
     try:
         while True:
@@ -614,16 +639,18 @@ async def websocket_endpoint(ws: WebSocket, room_code: str, player_name: str):
                     await broadcast(room, {"type": "return_to_lobby"})
 
     except WebSocketDisconnect:
+        if player.ws is not ws:
+            return  # A newer connection has taken over; don't mark disconnected
         player.connected = False
         player.ws = None
+        player.disconnect_time = time.time()
         room.last_activity = time.time()
         if room.connected_players:
-            # If the disconnected player was host, start transfer timer
             if player.is_host:
                 _schedule_host_transfer(room, player)
             await broadcast_lobby(room)
             await broadcast(room, {
-                "type": "player_left",
+                "type": "player_disconnected",
                 "player": player_name,
                 "new_host": room.host.name if room.host else "",
             })
@@ -666,13 +693,24 @@ def _cancel_host_transfer(room: Room) -> None:
 # ─── Room Cleanup ────────────────────────────────────────────────────────────
 
 async def cleanup_rooms():
-    """Periodically remove empty rooms and inactive rooms (30 min timeout)."""
+    """Periodically remove empty rooms, inactive rooms, and stale players."""
     while True:
         await asyncio.sleep(60)
         now = time.time()
         expired = []
         for code, room in rooms.items():
-            if not room.connected_players and (now - room.last_activity) > ROOM_EXPIRY_SECONDS:
+            # Remove players disconnected for over 30 minutes
+            stale = [
+                p for p in room.players
+                if not p.connected and p.disconnect_time > 0
+                and (now - p.disconnect_time) > ROOM_EXPIRY_SECONDS
+            ]
+            for p in stale:
+                room.players.remove(p)
+
+            if not room.connected_players and not room.players:
+                expired.append(code)
+            elif not room.connected_players and (now - room.last_activity) > ROOM_EXPIRY_SECONDS:
                 expired.append(code)
             elif (now - room.last_activity) > INACTIVITY_TIMEOUT:
                 asyncio.create_task(broadcast(room, {
@@ -725,6 +763,26 @@ async def api_content_replace(payload: ContentPayload):
 async def api_content_delete(game: str, pool: str | None = None):
     count = delete_content(game, pool)
     return JSONResponse({"deleted": count, "game": game, "pool": pool})
+
+
+@app.post("/api/room_status")
+async def api_room_status(payload: dict):
+    """Check which rooms are still active. Accepts {rooms: [{code, name}, ...]}."""
+    requested = payload.get("rooms", [])
+    results = []
+    for entry in requested:
+        code = entry.get("code", "").upper()
+        name = entry.get("name", "")
+        room = rooms.get(code)
+        if room and room.get_player(name):
+            results.append({
+                "code": code,
+                "name": name,
+                "active": True,
+                "players": len(room.connected_players),
+                "game": room.game.game_id or None,
+            })
+    return JSONResponse(results)
 
 
 @app.get("/")
