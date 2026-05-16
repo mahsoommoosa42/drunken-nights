@@ -128,6 +128,7 @@ async def broadcast(room: Room, msg: dict) -> None:
             except Exception:
                 p.connected = False
                 p.ws = None
+                p.disconnect_time = time.time()
 
 async def send(ws: WebSocket, msg: dict) -> None:
     await ws.send_text(json.dumps(msg))
@@ -302,7 +303,7 @@ async def send_next_round(room: Room) -> None:
         g.data["forbidden"] = card["forbidden"]
         g.timer_end = time.time() + 60
 
-        for p in room.players:
+        for p in room.connected_players:
             if p.name == current:
                 await send(p.ws, {
                     "type": "round",
@@ -638,6 +639,8 @@ async def websocket_endpoint(ws: WebSocket, room_code: str, player_name: str):
                     await broadcast(room, {"type": "return_to_lobby"})
 
     except WebSocketDisconnect:
+        if player.ws is not ws:
+            return  # A newer connection has taken over; don't mark disconnected
         player.connected = False
         player.ws = None
         player.disconnect_time = time.time()
