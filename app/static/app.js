@@ -53,20 +53,109 @@ function toast(msg, duration = 3000) {
   setTimeout(() => toastEl.classList.remove("show"), duration);
 }
 
+// ─── Session Persistence (localStorage) ──────────────────────────────────
+function saveSession(code, name) {
+  const sessions = JSON.parse(localStorage.getItem("dgn_sessions") || "[]");
+  const existing = sessions.find(s => s.code === code && s.name === name);
+  if (!existing) sessions.push({ code, name, ts: Date.now() });
+  else existing.ts = Date.now();
+  localStorage.setItem("dgn_sessions", JSON.stringify(sessions));
+}
+
+function removeSession(code, name) {
+  let sessions = JSON.parse(localStorage.getItem("dgn_sessions") || "[]");
+  sessions = sessions.filter(s => !(s.code === code && s.name === name));
+  localStorage.setItem("dgn_sessions", JSON.stringify(sessions));
+}
+
+function getSavedSessions() {
+  return JSON.parse(localStorage.getItem("dgn_sessions") || "[]");
+}
+
 // ─── WebSocket ───────────────────────────────────────────────────────────
+let reconnectAttempts = 0;
+let intentionalClose = false;
+
 function connect(code, name) {
+  intentionalClose = false;
   const proto = location.protocol === "https:" ? "wss" : "ws";
   const url = `${proto}://${location.host}/ws/${code}/${name}`;
   ws = new WebSocket(url);
-  ws.onopen = () => toast("Connected!");
-  ws.onclose = () => toast("Disconnected from room");
-  ws.onerror = () => toast("Connection error");
+  ws.onopen = () => {
+    toast("Connected!");
+    reconnectAttempts = 0;
+  };
+  ws.onclose = () => {
+    if (!intentionalClose && roomCode && myName) {
+      const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 10000);
+      reconnectAttempts++;
+      toast(`Disconnected — reconnecting in ${Math.round(delay/1000)}s...`);
+      setTimeout(() => {
+        if (!intentionalClose) connect(roomCode, myName);
+      }, delay);
+    } else {
+      toast("Disconnected from room");
+    }
+  };
+  ws.onerror = () => {};
   ws.onmessage = (e) => handleMessage(JSON.parse(e.data));
 }
 
 function wsSend(data) {
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(data));
 }
+
+// ─── Rejoin UI ───────────────────────────────────────────────────────────
+async function loadRejoinList() {
+  const sessions = getSavedSessions();
+  if (sessions.length === 0) {
+    $("#rejoin-section").style.display = "none";
+    return;
+  }
+  try {
+    const resp = await fetch("/api/room_status", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ rooms: sessions }),
+    });
+    const active = await resp.json();
+    const list = $("#rejoin-list");
+    list.innerHTML = "";
+    if (active.length === 0) {
+      $("#rejoin-section").style.display = "none";
+      // Clean up stale sessions
+      sessions.forEach(s => removeSession(s.code, s.name));
+      return;
+    }
+    $("#rejoin-section").style.display = "";
+    active.forEach(s => {
+      const card = document.createElement("div");
+      card.className = "rejoin-card";
+      card.innerHTML = `
+        <div class="rejoin-info">
+          <span class="rejoin-code">${s.code}</span>
+          <span class="rejoin-detail">${s.players} online${s.game ? ' · Playing ' + s.game.replace(/_/g, ' ') : ''}</span>
+        </div>
+        <button class="btn btn-sm btn-primary rejoin-btn" data-code="${s.code}" data-name="${s.name}">Rejoin as ${s.name}</button>
+      `;
+      list.appendChild(card);
+    });
+    list.querySelectorAll(".rejoin-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        myName = btn.dataset.name;
+        connect(btn.dataset.code, myName);
+      });
+    });
+    // Clean up sessions that are no longer active
+    const activeCodes = new Set(active.map(a => a.code + "|" + a.name));
+    sessions.forEach(s => {
+      if (!activeCodes.has(s.code + "|" + s.name)) removeSession(s.code, s.name);
+    });
+  } catch (e) {
+    $("#rejoin-section").style.display = "none";
+  }
+}
+loadRejoinList();
 
 // ─── Message Router ──────────────────────────────────────────────────────
 function handleMessage(msg) {
@@ -82,6 +171,7 @@ function handleMessage(msg) {
       players = msg.players;
       isHost = msg.host === myName;
       spicyMode = msg.spicy_mode || false;
+      saveSession(roomCode, myName);
       renderLobby(msg);
       renderSpicyToggle();
       if (gameCatalog.length > 0) renderGameGrid();
@@ -119,6 +209,19 @@ function handleMessage(msg) {
         toast("You are now the host!");
       }
       break;
+    case "player_disconnected":
+      toast(`${msg.player} disconnected`);
+      if (msg.new_host === myName) {
+        isHost = true;
+        toast("You are now the host!");
+      }
+      break;
+    case "player_reconnected":
+      toast(`${msg.player} reconnected!`);
+      break;
+    case "rejoin_state":
+      toast(msg.message || "Rejoined game in progress!", 3000);
+      break;
     case "host_transferred":
       if (msg.new_host === myName) {
         isHost = true;
@@ -134,8 +237,11 @@ function handleMessage(msg) {
       break;
     case "room_closed":
       toast(msg.reason || "Room has been closed.", 5000);
+      intentionalClose = true;
+      removeSession(roomCode, myName);
       if (ws) ws.close();
       showScreen(screenLanding);
+      loadRejoinList();
       break;
     case "chat":
       // Future: in-game chat
@@ -191,8 +297,11 @@ $("#btn-transfer-host").addEventListener("click", () => {
 // Leave room
 $("#btn-leave-room").addEventListener("click", () => {
   if (confirm("Leave this room?")) {
+    intentionalClose = true;
     wsSend({ type: "leave_room" });
+    removeSession(roomCode, myName);
     showScreen(screenLanding);
+    loadRejoinList();
   }
 });
 
@@ -221,10 +330,15 @@ function renderLobby(msg) {
   $("#lobby-code").textContent = msg.room_code;
   const list = $("#player-list");
   list.innerHTML = "";
-  msg.players.forEach(name => {
+  const allPlayers = msg.all_players || msg.players.map(n => ({name: n, connected: true}));
+  allPlayers.forEach(p => {
     const chip = document.createElement("div");
-    chip.className = "player-chip";
-    chip.innerHTML = name + (name === msg.host ? ' <span class="host-badge">HOST</span>' : "");
+    chip.className = "player-chip" + (p.connected ? "" : " player-disconnected");
+    let label = p.name || p;
+    const name = p.name || p;
+    if (name === msg.host) label += ' <span class="host-badge">HOST</span>';
+    if (!p.connected) label += ' <span class="dc-badge">offline</span>';
+    chip.innerHTML = label;
     list.appendChild(chip);
   });
   renderHostControls();
