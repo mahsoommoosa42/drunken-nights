@@ -613,3 +613,69 @@ body::before {
   white-space: nowrap;
   flex-shrink: 0;
 }
+
+/* ─── Bug Report FAB ──────────────────────────────────────────────────── */
+.bug-report-fab {
+  position: fixed;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  z-index: 900;
+  width: 3.2rem;
+  height: 3.2rem;
+  border-radius: 50%;
+  border: none;
+  background: var(--bg-card);
+  backdrop-filter: blur(8px);
+  font-size: 1.4rem;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+  transition: transform .2s, background .2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.bug-report-fab:hover {
+  transform: scale(1.1);
+  background: rgba(255,255,255,.15);
+}
+
+/* ─── Bug Report Modal ────────────────────────────────────────────────── */
+.bug-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0,0,0,.6);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+.bug-overlay.hidden { display: none; }
+.bug-modal {
+  width: 100%;
+  max-width: 420px;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: .75rem;
+}
+.bug-modal-title {
+  font-family: 'Fredoka One', cursive;
+  font-size: 1.3rem;
+  color: var(--accent);
+}
+.bug-modal-hint {
+  font-size: .85rem;
+  color: var(--text-muted);
+}
+.bug-textarea {
+  min-height: 100px;
+  resize: vertical;
+  font-family: inherit;
+}
+.bug-btn-row {
+  display: flex;
+  justify-content: flex-end;
+  gap: .5rem;
+}

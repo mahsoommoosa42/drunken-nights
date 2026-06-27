@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import random
 import re
 import string
@@ -11,6 +12,8 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
@@ -798,6 +801,51 @@ async def api_room_status(payload: dict):
                 "game": room.game.game_id or None,
             })
     return JSONResponse(results)
+
+
+class BugReport(BaseModel):
+    title: str
+    description: str
+    room_code: str = ""
+    game: str = ""
+
+
+@app.post("/api/bug-report")
+async def api_bug_report(report: BugReport):
+    token = os.environ.get("GITHUB_ISSUES_TOKEN", "")
+    if not token:
+        return JSONResponse({"ok": False, "error": "Bug reporting is not configured"}, status_code=503)
+
+    title = report.title.strip()[:100]
+    if not title:
+        return JSONResponse({"ok": False, "error": "Title is required"}, status_code=400)
+
+    body_parts = [report.description.strip()[:1000]]
+    if report.room_code:
+        body_parts.append(f"**Room:** `{report.room_code}`")
+    if report.game:
+        body_parts.append(f"**Game:** {report.game}")
+    body_parts.append("\n---\n*Submitted via in-app bug report*")
+    body = "\n\n".join(body_parts)
+
+    payload = json.dumps({"title": f"[Bug Report] {title}", "body": body, "labels": ["bug", "user-report"]}).encode()
+    req = Request(
+        "https://api.github.com/repos/mahsoommoosa42/drunken-nights/issues",
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "Content-Type": "application/json",
+            "User-Agent": "drunken-nights-app",
+        },
+        method="POST",
+    )
+    try:
+        with urlopen(req) as resp:
+            result = json.loads(resp.read())
+            return JSONResponse({"ok": True, "issue_number": result["number"]})
+    except HTTPError:
+        return JSONResponse({"ok": False, "error": "Failed to create issue"}, status_code=502)
 
 
 @app.get("/")
