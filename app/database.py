@@ -6,6 +6,7 @@ import json
 import os
 import sqlite3
 import threading
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -42,13 +43,17 @@ def init_db() -> None:
     conn.execute("""
         CREATE INDEX IF NOT EXISTS idx_game_pool ON game_content(game, pool)
     """)
+    # Migrate: drop old session_log if it has PII columns (player, ip)
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(session_log)").fetchall()}
+    if "player" in cols or "ip" in cols:
+        conn.execute("DROP TABLE session_log")
+
     conn.execute("""
         CREATE TABLE IF NOT EXISTS session_log (
             id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            player     TEXT NOT NULL,
+            anon_id    TEXT NOT NULL,
             room_code  TEXT NOT NULL,
-            user_agent TEXT NOT NULL DEFAULT '',
-            ip         TEXT NOT NULL DEFAULT '',
+            device     TEXT NOT NULL DEFAULT '',
             joined_at  TEXT NOT NULL DEFAULT (datetime('now')),
             is_host    INTEGER NOT NULL DEFAULT 0
         )
@@ -129,19 +134,45 @@ def count_content(game: str | None = None) -> dict[str, dict[str, int]]:
     return result
 
 
-def log_session(player: str, room_code: str, user_agent: str, ip: str, is_host: bool) -> None:
+def _parse_device(ua: str) -> str:
+    """Extract a short device description from a User-Agent string (no PII)."""
+    if not ua:
+        return "unknown"
+    ua_lower = ua.lower()
+    if "iphone" in ua_lower:
+        return "iPhone"
+    if "ipad" in ua_lower:
+        return "iPad"
+    if "android" in ua_lower:
+        return "Android"
+    if "macintosh" in ua_lower or "mac os" in ua_lower:
+        return "Mac"
+    if "windows" in ua_lower:
+        return "Windows"
+    if "linux" in ua_lower:
+        return "Linux"
+    if "cros" in ua_lower:
+        return "ChromeOS"
+    return "other"
+
+
+def log_session(room_code: str, user_agent: str, is_host: bool) -> str:
+    """Log a session join. Returns the generated anon_id."""
+    anon_id = uuid.uuid4().hex[:12]
+    device = _parse_device(user_agent)
     conn = _get_conn()
     conn.execute(
-        "INSERT INTO session_log (player, room_code, user_agent, ip, is_host) VALUES (?, ?, ?, ?, ?)",
-        (player, room_code, user_agent, ip, 1 if is_host else 0),
+        "INSERT INTO session_log (anon_id, room_code, device, is_host) VALUES (?, ?, ?, ?)",
+        (anon_id, room_code, device, 1 if is_host else 0),
     )
     conn.commit()
+    return anon_id
 
 
 def get_sessions(limit: int = 100) -> list[dict]:
     conn = _get_conn()
     rows = conn.execute(
-        "SELECT id, player, room_code, user_agent, ip, joined_at, is_host FROM session_log ORDER BY id DESC LIMIT ?",
+        "SELECT id, anon_id, room_code, device, joined_at, is_host FROM session_log ORDER BY id DESC LIMIT ?",
         (limit,),
     ).fetchall()
     return [dict(r) for r in rows]

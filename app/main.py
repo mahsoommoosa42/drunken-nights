@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import random
 import re
@@ -27,6 +28,8 @@ from app.database import (
     add_content, replace_content, delete_content, count_content,
     log_session, get_sessions, DB_PATH,
 )
+
+logger = logging.getLogger("drunken-nights")
 
 app = FastAPI(title="Drunk Games Night")
 
@@ -563,17 +566,13 @@ async def websocket_endpoint(ws: WebSocket, room_code: str, player_name: str):
 
     room.last_activity = time.time()
 
-    # Log session
+    # Log session (GDPR: no names or IPs stored, only anonymous ID + device type)
     ua = ""
-    ip = ""
     for h_name, h_val in ws.headers.items():
         if h_name.lower() == "user-agent":
             ua = h_val
-        elif h_name.lower() == "x-forwarded-for":
-            ip = h_val.split(",")[0].strip()
-    if not ip and ws.client:
-        ip = ws.client.host
-    log_session(player_name, code, ua, ip, player.is_host)
+    anon_id = log_session(code, ua, player.is_host)
+    logger.info("session.join room=%s anon=%s host=%s", code, anon_id, player.is_host)
 
     await broadcast_lobby(room)
     await send(ws, {
@@ -671,6 +670,7 @@ async def websocket_endpoint(ws: WebSocket, room_code: str, player_name: str):
                     await broadcast(room, {"type": "return_to_lobby"})
 
     except WebSocketDisconnect:
+        logger.info("session.disconnect room=%s anon=%s", code, anon_id)
         if player.ws is not ws:
             return  # A newer connection has taken over; don't mark disconnected
         player.connected = False
@@ -686,6 +686,8 @@ async def websocket_endpoint(ws: WebSocket, room_code: str, player_name: str):
                 "player": player_name,
                 "new_host": room.host.name if room.host else "",
             })
+    except Exception:
+        logger.exception("session.error room=%s anon=%s", code, anon_id)
 
 
 # ─── Host Transfer Timer ─────────────────────────────────────────────────────
