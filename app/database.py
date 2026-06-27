@@ -58,6 +58,15 @@ def init_db() -> None:
             is_host    INTEGER NOT NULL DEFAULT 0
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS persisted_rooms (
+            code        TEXT PRIMARY KEY,
+            players     TEXT NOT NULL DEFAULT '[]',
+            game_state  TEXT NOT NULL DEFAULT '{}',
+            spicy_mode  INTEGER NOT NULL DEFAULT 0,
+            last_activity REAL NOT NULL
+        )
+    """)
     conn.commit()
 
 
@@ -176,6 +185,49 @@ def get_sessions(limit: int = 100) -> list[dict]:
         (limit,),
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+def save_room(code: str, player_names: list[dict], game_state: dict,
+              spicy_mode: bool, last_activity: float) -> None:
+    conn = _get_conn()
+    conn.execute(
+        """INSERT OR REPLACE INTO persisted_rooms
+           (code, players, game_state, spicy_mode, last_activity)
+           VALUES (?, ?, ?, ?, ?)""",
+        (code, json.dumps(player_names), json.dumps(game_state),
+         1 if spicy_mode else 0, last_activity),
+    )
+    conn.commit()
+
+
+def delete_room(code: str) -> None:
+    conn = _get_conn()
+    conn.execute("DELETE FROM persisted_rooms WHERE code = ?", (code,))
+    conn.commit()
+
+
+def load_all_rooms() -> list[dict]:
+    conn = _get_conn()
+    rows = conn.execute("SELECT * FROM persisted_rooms").fetchall()
+    result = []
+    for r in rows:
+        result.append({
+            "code": r["code"],
+            "players": json.loads(r["players"]),
+            "game_state": json.loads(r["game_state"]),
+            "spicy_mode": bool(r["spicy_mode"]),
+            "last_activity": r["last_activity"],
+        })
+    return result
+
+
+def purge_expired_rooms(max_age_seconds: float) -> int:
+    import time as _time
+    cutoff = _time.time() - max_age_seconds
+    conn = _get_conn()
+    cur = conn.execute("DELETE FROM persisted_rooms WHERE last_activity < ?", (cutoff,))
+    conn.commit()
+    return cur.rowcount
 
 
 def is_seeded() -> bool:

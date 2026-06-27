@@ -27,6 +27,7 @@ from app.database import (
     init_db, seed_from_game_data, get_content,
     add_content, replace_content, delete_content, count_content,
     log_session, get_sessions, DB_PATH,
+    save_room, delete_room, load_all_rooms, purge_expired_rooms,
 )
 
 logger = logging.getLogger("drunken-nights")
@@ -37,9 +38,9 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 # ─── Data Structures ─────────────────────────────────────────────────────────
 
-ROOM_EXPIRY_SECONDS = 1800      # 30 min grace period for empty rooms
+ROOM_EXPIRY_SECONDS = 4 * 3600  # 4 hours before empty rooms expire
 HOST_TRANSFER_SECONDS = 120     # 2 min before host is transferred
-INACTIVITY_TIMEOUT = 30 * 60    # 30 min inactivity timeout
+INACTIVITY_TIMEOUT = 4 * 3600   # 4 hours of inactivity before room closes
 
 @dataclass
 class Player:
@@ -124,6 +125,49 @@ def generate_code() -> str:
         code = "".join(random.choices(string.ascii_uppercase + string.digits, k=5))
         if code not in rooms:
             return code
+
+
+def persist_room(room: Room) -> None:
+    """Save room state to DB for crash recovery."""
+    players_data = [
+        {"name": p.name, "is_host": p.is_host}
+        for p in room.players
+    ]
+    game_data = {
+        "game_id": room.game.game_id,
+        "current_player_idx": room.game.current_player_idx,
+        "round_num": room.game.round_num,
+    }
+    save_room(room.code, players_data, game_data, room.spicy_mode, room.last_activity)
+
+
+def restore_rooms() -> None:
+    """Restore rooms from DB after server restart. All players start disconnected."""
+    purge_expired_rooms(INACTIVITY_TIMEOUT)
+    for rd in load_all_rooms():
+        room = Room(
+            code=rd["code"],
+            spicy_mode=rd["spicy_mode"],
+            last_activity=rd["last_activity"],
+        )
+        for pd in rd["players"]:
+            player = Player(
+                name=pd["name"],
+                is_host=pd.get("is_host", False),
+                connected=False,
+                disconnect_time=rd["last_activity"],
+            )
+            room.players.append(player)
+        gs = rd.get("game_state", {})
+        if gs.get("game_id"):
+            room.game = GameState(
+                game_id=gs["game_id"],
+                current_player_idx=gs.get("current_player_idx", 0),
+                round_num=gs.get("round_num", 0),
+            )
+        rooms[room.code] = room
+    if rooms:
+        logger.info("Restored %d room(s) from database", len(rooms))
 
 
 # ─── Broadcast Helpers ───────────────────────────────────────────────────────
@@ -573,6 +617,7 @@ async def websocket_endpoint(ws: WebSocket, room_code: str, player_name: str):
             ua = h_val
     anon_id = log_session(code, ua, player.is_host)
     logger.info("session.join room=%s anon=%s host=%s", code, anon_id, player.is_host)
+    persist_room(room)
 
     await broadcast_lobby(room)
     await send(ws, {
@@ -609,11 +654,13 @@ async def websocket_endpoint(ws: WebSocket, room_code: str, player_name: str):
                     room.spicy_mode = not room.spicy_mode
                     room.decks.clear()
                     await broadcast_lobby(room)
+                    persist_room(room)
 
             elif msg_type == "start_game":
                 game_id = data.get("game_id", "")
                 if player.is_host or player == room.host:
                     await start_game(room, game_id)
+                    persist_room(room)
 
             elif msg_type == "game_action":
                 await handle_game_action(room, player_name, data)
@@ -660,6 +707,7 @@ async def websocket_endpoint(ws: WebSocket, room_code: str, player_name: str):
                     "player": player.name,
                     "new_host": room.host.name if room.host else "",
                 })
+                persist_room(room)
                 await ws.close()
                 return
 
@@ -668,6 +716,7 @@ async def websocket_endpoint(ws: WebSocket, room_code: str, player_name: str):
                     room.game = GameState()
                     await broadcast_lobby(room)
                     await broadcast(room, {"type": "return_to_lobby"})
+                    persist_room(room)
 
     except WebSocketDisconnect:
         logger.info("session.disconnect room=%s anon=%s", code, anon_id)
@@ -677,6 +726,7 @@ async def websocket_endpoint(ws: WebSocket, room_code: str, player_name: str):
         player.ws = None
         player.disconnect_time = time.time()
         room.last_activity = time.time()
+        persist_room(room)
         if room.connected_players:
             if player.is_host:
                 _schedule_host_transfer(room, player)
@@ -749,16 +799,20 @@ async def cleanup_rooms():
             elif (now - room.last_activity) > INACTIVITY_TIMEOUT:
                 asyncio.create_task(broadcast(room, {
                     "type": "room_closed",
-                    "reason": "Room closed due to 30 minutes of inactivity.",
+                    "reason": "Room closed due to 4 hours of inactivity.",
                 }))
                 expired.append(code)
+            else:
+                persist_room(room)
         for code in expired:
             rooms.pop(code, None)
+            delete_room(code)
 
 @app.on_event("startup")
 async def startup():
     init_db()
     seed_from_game_data()
+    restore_rooms()
     asyncio.create_task(cleanup_rooms())
 
 
