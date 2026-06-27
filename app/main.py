@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import random
+import re
 import string
 import time
 from dataclasses import dataclass, field
@@ -222,9 +223,9 @@ async def send_next_round(room: Room) -> None:
         })
 
     elif gid == "kings_cup":
-        values = list(KINGS_CUP_RULES.keys())
-        card_val = random.choice(values)
-        suit = random.choice(SUITS)
+        full_deck = [(val, suit) for val in KINGS_CUP_RULES for suit in SUITS]
+        deck = room.ensure_deck("kings_cup_cards", full_deck)
+        card_val, suit = deck.draw()
         rule_info = KINGS_CUP_RULES[card_val]
         if card_val == "K":
             room.kings_drawn += 1
@@ -397,7 +398,7 @@ async def handle_game_action(room: Room, player_name: str, data: dict) -> None:
                 "type": "reveal",
                 "game": gid,
                 "drinkers": drinkers,
-                "total": len(room.players),
+                "total": len(room.connected_players),
             })
 
     elif gid == "would_you_rather" and action == "vote":
@@ -512,6 +513,13 @@ async def handle_game_action(room: Room, player_name: str, data: dict) -> None:
 async def websocket_endpoint(ws: WebSocket, room_code: str, player_name: str):
     await ws.accept()
 
+    # Sanitize player name: strip HTML tags, limit to 16 chars
+    player_name = re.sub(r"<[^>]*>", "", player_name).strip()[:16]
+    if not player_name:
+        await send(ws, {"type": "error", "message": "Invalid name"})
+        await ws.close()
+        return
+
     # Create or join room
     existing = None
     if room_code == "NEW":
@@ -530,6 +538,13 @@ async def websocket_endpoint(ws: WebSocket, room_code: str, player_name: str):
             return
 
         existing = room.get_player(player_name)
+        if not existing:
+            # Reject duplicate names from different connections
+            taken = [p.name for p in room.players if p.connected]
+            if player_name in taken:
+                await send(ws, {"type": "error", "message": "Name already taken in this room"})
+                await ws.close()
+                return
         if existing:
             existing.ws = ws
             existing.connected = True

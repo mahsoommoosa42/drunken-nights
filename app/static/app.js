@@ -480,7 +480,7 @@ function renderRound(msg) {
 
   else if (gid === "most_likely_to") {
     const btns = msg.players.map(name =>
-      `<button class="option-btn" onclick="mltVote('${esc(name)}')">${name}</button>`
+      `<button class="option-btn" onclick="mltVote('${esc(name)}')">${escHtml(name)}</button>`
     ).join("");
     area.innerHTML = `
       <div class="game-card">
@@ -856,3 +856,8 @@ function startTimer(seconds, elId) {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
 function esc(s) { return s.replace(/'/g, "\\'"); }
+function escHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
