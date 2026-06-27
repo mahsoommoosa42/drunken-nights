@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import threading
 from pathlib import Path
 from typing import Any
 
-DB_PATH = Path(__file__).parent.parent / "data" / "content.db"
+_DEFAULT_DB_DIR = Path(__file__).parent.parent / "data"
+DB_PATH = Path(os.environ.get("DB_DIR", str(_DEFAULT_DB_DIR))) / "content.db"
 
 _local = threading.local()
 
@@ -27,7 +29,7 @@ def _get_conn() -> sqlite3.Connection:
 
 
 def init_db() -> None:
-    """Create the content table if it doesn't exist."""
+    """Create the content and session_log tables if they don't exist."""
     conn = _get_conn()
     conn.execute("""
         CREATE TABLE IF NOT EXISTS game_content (
@@ -39,6 +41,17 @@ def init_db() -> None:
     """)
     conn.execute("""
         CREATE INDEX IF NOT EXISTS idx_game_pool ON game_content(game, pool)
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS session_log (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            player     TEXT NOT NULL,
+            room_code  TEXT NOT NULL,
+            user_agent TEXT NOT NULL DEFAULT '',
+            ip         TEXT NOT NULL DEFAULT '',
+            joined_at  TEXT NOT NULL DEFAULT (datetime('now')),
+            is_host    INTEGER NOT NULL DEFAULT 0
+        )
     """)
     conn.commit()
 
@@ -114,6 +127,24 @@ def count_content(game: str | None = None) -> dict[str, dict[str, int]]:
     for r in rows:
         result.setdefault(r["game"], {})[r["pool"]] = r["cnt"]
     return result
+
+
+def log_session(player: str, room_code: str, user_agent: str, ip: str, is_host: bool) -> None:
+    conn = _get_conn()
+    conn.execute(
+        "INSERT INTO session_log (player, room_code, user_agent, ip, is_host) VALUES (?, ?, ?, ?, ?)",
+        (player, room_code, user_agent, ip, 1 if is_host else 0),
+    )
+    conn.commit()
+
+
+def get_sessions(limit: int = 100) -> list[dict]:
+    conn = _get_conn()
+    rows = conn.execute(
+        "SELECT id, player, room_code, user_agent, ip, joined_at, is_host FROM session_log ORDER BY id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def is_seeded() -> bool:
