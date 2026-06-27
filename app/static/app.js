@@ -165,6 +165,13 @@ function handleMessage(msg) {
       break;
     case "error":
       toast(msg.message);
+      if (msg.message === "Room not found") {
+        intentionalClose = true;
+        removeSession(roomCode, myName);
+        roomCode = "";
+        showScreen(screenLanding);
+        loadRejoinList();
+      }
       break;
     case "lobby":
       roomCode = msg.room_code;
