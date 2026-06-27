@@ -861,3 +861,58 @@ function escHtml(s) {
   d.textContent = s;
   return d.innerHTML;
 }
+
+// ─── Bug Report ──────────────────────────────────────────────────────────
+(function initBugReport() {
+  const fab = $("#btn-bug-report");
+  const overlay = $("#bug-report-overlay");
+  const titleInput = $("#bug-title");
+  const descInput = $("#bug-desc");
+  const cancelBtn = $("#btn-bug-cancel");
+  const submitBtn = $("#btn-bug-submit");
+
+  fab.addEventListener("click", () => {
+    overlay.classList.remove("hidden");
+    titleInput.value = "";
+    descInput.value = "";
+    titleInput.focus();
+  });
+
+  cancelBtn.addEventListener("click", () => overlay.classList.add("hidden"));
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) overlay.classList.add("hidden");
+  });
+
+  submitBtn.addEventListener("click", async () => {
+    const title = titleInput.value.trim();
+    if (!title) { toast("Please enter a summary"); return; }
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Submitting...";
+
+    try {
+      const resp = await fetch("/api/bug-report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title,
+          description: descInput.value.trim(),
+          room_code: roomCode || "",
+          game: currentGame || "",
+        }),
+      });
+      const data = await resp.json();
+      if (data.ok) {
+        toast("Bug reported — thank you!");
+        overlay.classList.add("hidden");
+      } else {
+        toast(data.error || "Failed to submit report");
+      }
+    } catch {
+      toast("Network error — try again");
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Submit";
+    }
+  });
+})();

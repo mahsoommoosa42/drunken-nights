@@ -110,6 +110,22 @@
     <div id="game-area" class="game-area"></div>
   </div>
 
+  <!-- ============ BUG REPORT ============ -->
+  <button id="btn-bug-report" class="bug-report-fab" title="Report a Bug">🐛</button>
+
+  <div id="bug-report-overlay" class="bug-overlay hidden">
+    <div class="bug-modal card">
+      <h3 class="bug-modal-title">🐛 Report a Bug</h3>
+      <p class="bug-modal-hint">Describe the issue and we'll file it for you.</p>
+      <input type="text" id="bug-title" class="input" placeholder="Short summary" maxlength="100" />
+      <textarea id="bug-desc" class="input bug-textarea" placeholder="What happened? Steps to reproduce..." maxlength="1000"></textarea>
+      <div class="btn-group bug-btn-row">
+        <button id="btn-bug-cancel" class="btn btn-sm btn-ghost">Cancel</button>
+        <button id="btn-bug-submit" class="btn btn-sm btn-primary">Submit</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ============ TOAST ============ -->
   <div id="toast" class="toast hidden"></div>
 
