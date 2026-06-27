@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import random
 import re
@@ -16,15 +17,19 @@ from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.requests import Request as HTTPRequest
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
 from app.game_data import KINGS_CUP_RULES, SUITS, SUIT_SYMBOLS, ShuffledDeck
 from app.database import (
     init_db, seed_from_game_data, get_content,
     add_content, replace_content, delete_content, count_content,
+    log_session, get_sessions, DB_PATH,
 )
+
+logger = logging.getLogger("drunken-nights")
 
 app = FastAPI(title="Drunk Games Night")
 
@@ -561,6 +566,14 @@ async def websocket_endpoint(ws: WebSocket, room_code: str, player_name: str):
 
     room.last_activity = time.time()
 
+    # Log session (GDPR: no names or IPs stored, only anonymous ID + device type)
+    ua = ""
+    for h_name, h_val in ws.headers.items():
+        if h_name.lower() == "user-agent":
+            ua = h_val
+    anon_id = log_session(code, ua, player.is_host)
+    logger.info("session.join room=%s anon=%s host=%s", code, anon_id, player.is_host)
+
     await broadcast_lobby(room)
     await send(ws, {
         "type": "game_catalog",
@@ -657,6 +670,7 @@ async def websocket_endpoint(ws: WebSocket, room_code: str, player_name: str):
                     await broadcast(room, {"type": "return_to_lobby"})
 
     except WebSocketDisconnect:
+        logger.info("session.disconnect room=%s anon=%s", code, anon_id)
         if player.ws is not ws:
             return  # A newer connection has taken over; don't mark disconnected
         player.connected = False
@@ -672,6 +686,8 @@ async def websocket_endpoint(ws: WebSocket, room_code: str, player_name: str):
                 "player": player_name,
                 "new_host": room.host.name if room.host else "",
             })
+    except Exception:
+        logger.exception("session.error room=%s anon=%s", code, anon_id)
 
 
 # ─── Host Transfer Timer ─────────────────────────────────────────────────────
@@ -846,6 +862,43 @@ async def api_bug_report(report: BugReport):
             return JSONResponse({"ok": True, "issue_number": result["number"]})
     except HTTPError:
         return JSONResponse({"ok": False, "error": "Failed to create issue"}, status_code=502)
+
+
+ADMIN_KEY = os.environ.get("ADMIN_KEY", "")
+
+
+def _check_admin(request: HTTPRequest) -> bool:
+    if not ADMIN_KEY:
+        return False
+    key = request.query_params.get("key", "")
+    return key == ADMIN_KEY
+
+
+@app.get("/api/admin/sessions")
+async def api_admin_sessions(request: HTTPRequest, limit: int = 100):
+    if not _check_admin(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    sessions = get_sessions(min(limit, 500))
+    return JSONResponse({"sessions": sessions})
+
+
+@app.get("/api/admin/export-db")
+async def api_admin_export_db(request: HTTPRequest):
+    if not _check_admin(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    if not DB_PATH.exists():
+        return JSONResponse({"error": "Database not found"}, status_code=404)
+
+    def iter_file():
+        with open(DB_PATH, "rb") as f:
+            while chunk := f.read(8192):
+                yield chunk
+
+    return StreamingResponse(
+        iter_file(),
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": "attachment; filename=content.db"},
+    )
 
 
 @app.get("/")
