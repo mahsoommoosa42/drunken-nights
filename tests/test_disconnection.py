@@ -34,11 +34,15 @@ from app.main import (
     generate_code,
     broadcast,
     broadcast_lobby,
+    broadcast_answer_progress,
     cleanup_rooms,
+    check_and_reveal,
+    send_to_host,
     websocket_endpoint,
     _schedule_host_transfer,
     _cancel_host_transfer,
     _host_transfer_countdown,
+    _round_complete,
     ROOM_EXPIRY_SECONDS,
     HOST_TRANSFER_SECONDS,
     INACTIVITY_TIMEOUT,
@@ -68,6 +72,12 @@ def disconnect_player(player: Player) -> None:
     player.connected = False
     player.ws = None
     player.disconnect_time = time.time()
+
+
+def ws_messages(player: Player) -> list[dict]:
+    if not player.ws:
+        return []
+    return [json.loads(call.args[0]) for call in player.ws.send_text.call_args_list]
 
 
 # ─── Tests ────────────────────────────────────────────────────────────────────
@@ -415,6 +425,99 @@ class TestBroadcast:
         disconnected = [p for p in msg["all_players"] if not p["connected"]]
         assert len(disconnected) == 1
         assert disconnected[0]["name"] == "Player2"
+
+
+class TestRoundCompletion:
+    @pytest.mark.asyncio
+    async def test_check_and_reveal_fires_when_all_connected_answer(self):
+        room = make_room()
+        room.game = GameState(game_id="hot_takes")
+        room.game.data["take"] = "Always wear sunglasses indoors"
+        room.game.votes = {
+            "Player1": "agree",
+            "Player2": "disagree",
+            "Player3": "agree",
+        }
+
+        await check_and_reveal(room)
+
+        for player in room.players:
+            msgs = ws_messages(player)
+            assert any(m["type"] == "reveal" and m["game"] == "hot_takes" for m in msgs)
+        assert room.game.data["_revealed"] is True
+        assert room.game.data["_last_event"]["type"] == "reveal"
+
+    @pytest.mark.asyncio
+    async def test_disconnect_unsticks_round_and_reveals(self):
+        room = make_room()
+        room.game = GameState(game_id="hot_takes")
+        room.game.data["take"] = "Always wear sunglasses indoors"
+        room.game.votes = {
+            "Player1": "agree",
+            "Player2": "disagree",
+        }
+        disconnect_player(room.players[2])
+
+        assert _round_complete(room) is True
+        await check_and_reveal(room)
+
+        for player in room.players[:2]:
+            msgs = ws_messages(player)
+            assert any(m["type"] == "reveal" and m["game"] == "hot_takes" for m in msgs)
+        assert room.game.data["_revealed"] is True
+
+    def test_round_complete_false_when_connected_player_missing(self):
+        room = make_room()
+        room.game = GameState(game_id="hot_takes")
+        room.game.votes = {
+            "Player1": "agree",
+            "Player2": "disagree",
+        }
+        assert _round_complete(room) is False
+
+
+class TestHostOnlyProgress:
+    @pytest.mark.asyncio
+    async def test_broadcast_answer_progress_sends_only_to_host(self):
+        room = make_room()
+        room.game = GameState(game_id="most_likely_to")
+        room.game.votes = {"Player2": "Player1"}
+
+        await broadcast_answer_progress(room)
+
+        host_msgs = ws_messages(room.players[0])
+        assert any(m["type"] == "answer_progress" for m in host_msgs)
+        msg = next(m for m in host_msgs if m["type"] == "answer_progress")
+        assert msg["answered"] == ["Player2"]
+        assert msg["remaining"] == ["Player1", "Player3"]
+        assert msg["answered_count"] == 1
+        assert msg["total"] == 3
+        assert not any(m["type"] == "answer_progress" for m in ws_messages(room.players[1]))
+        assert not any(m["type"] == "answer_progress" for m in ws_messages(room.players[2]))
+
+    @pytest.mark.asyncio
+    async def test_send_to_host_sends_only_host(self):
+        room = make_room()
+
+        await send_to_host(room, {"type": "host_only", "message": "hello"})
+
+        assert any(m["type"] == "host_only" for m in ws_messages(room.players[0]))
+        assert ws_messages(room.players[1]) == []
+        assert ws_messages(room.players[2]) == []
+
+    @pytest.mark.asyncio
+    async def test_broadcast_lobby_tailors_all_players(self):
+        room = make_room()
+        disconnect_player(room.players[1])
+
+        await broadcast_lobby(room)
+
+        host_msg = json.loads(room.players[0].ws.send_text.call_args[0][0])
+        non_host_msg = json.loads(room.players[2].ws.send_text.call_args[0][0])
+        assert len(host_msg["all_players"]) == 3
+        assert len([p for p in host_msg["all_players"] if not p["connected"]]) == 1
+        assert len(non_host_msg["all_players"]) == 2
+        assert all(p["connected"] for p in non_host_msg["all_players"])
 
 
 class TestTabooDisconnectSafety:

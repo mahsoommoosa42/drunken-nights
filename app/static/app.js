@@ -191,22 +191,29 @@ function handleMessage(msg) {
     case "game_start":
       currentGame = msg.game_id;
       hasVoted = false;
+      hideHostTracker();
       const info = gameCatalog.find(g => g.id === msg.game_id);
       $("#game-title").textContent = info ? `${info.emoji} ${info.name}` : msg.game_id;
       showScreen(screenGame);
       break;
     case "round":
       hasVoted = false;
+      hideHostTracker();
       renderRound(msg);
       break;
     case "reveal":
+      hideHostTracker();
       renderReveal(msg);
+      break;
+    case "answer_progress":
+      renderAnswerProgress(msg);
       break;
     case "vote_update":
       renderVoteUpdate(msg);
       break;
     case "return_to_lobby":
       currentGame = "";
+      hideHostTracker();
       showScreen(screenLobby);
       break;
     case "player_left":
@@ -768,6 +775,27 @@ function renderReveal(msg) {
 function renderVoteUpdate(msg) {
   const el = document.getElementById("vote-status");
   if (el) el.textContent = `${msg.votes_in}/${msg.total} votes in...`;
+}
+
+function hideHostTracker() {
+  const el = $("#host-tracker");
+  if (el) {
+    el.classList.add("hidden");
+    el.innerHTML = "";
+  }
+}
+
+function renderAnswerProgress(msg) {
+  const el = $("#host-tracker");
+  if (!el) return;
+  if (!isHost) {
+    el.classList.add("hidden");
+    return;
+  }
+  const answered = (msg.answered || []).map(n => `<span class="track-name answered">✓ ${escHtml(n)}</span>`).join("");
+  const remaining = (msg.remaining || []).map(n => `<span class="track-name pending">… ${escHtml(n)}</span>`).join("");
+  el.innerHTML = `<div class="host-tracker-title">Answers ${msg.answered_count}/${msg.total}</div><div class="track-names">${answered}${remaining}</div>`;
+  el.classList.remove("hidden");
 }
 
 // ─── Game Actions ────────────────────────────────────────────────────────

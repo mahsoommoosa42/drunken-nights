@@ -331,6 +331,48 @@ body::before {
   margin: 0 auto;
 }
 
+.host-tracker {
+  max-width: 640px;
+  width: 100%;
+  margin: 1rem auto 0;
+  padding: .85rem 1rem;
+  border-radius: 14px;
+  border: 1px solid rgba(168,85,247,.18);
+  background: rgba(255,255,255,.05);
+  backdrop-filter: blur(8px);
+}
+.host-tracker-title {
+  font-size: .8rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--accent2);
+  margin-bottom: .5rem;
+}
+.track-names {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .4rem;
+}
+.track-name {
+  display: inline-flex;
+  align-items: center;
+  gap: .25rem;
+  padding: .25rem .5rem;
+  border-radius: 999px;
+  font-size: .78rem;
+  font-weight: 700;
+}
+.track-name.answered {
+  background: rgba(74,222,128,.16);
+  color: var(--green);
+}
+.track-name.pending {
+  background: rgba(255,255,255,.06);
+  color: var(--text-muted);
+}
+.host-tracker.hidden { display: none; }
+
 /* ─── Game Cards ──────────────────────────────────────────────────────── */
 .game-card {
   background: var(--bg-card);
