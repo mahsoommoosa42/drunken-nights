@@ -218,17 +218,9 @@ function handleMessage(msg) {
       break;
     case "player_left":
       toast(`${msg.player} left the room`);
-      if (msg.new_host === myName) {
-        isHost = true;
-        toast("You are now the host!");
-      }
       break;
     case "player_disconnected":
       toast(`${msg.player} disconnected`);
-      if (msg.new_host === myName) {
-        isHost = true;
-        toast("You are now the host!");
-      }
       break;
     case "player_reconnected":
       toast(`${msg.player} reconnected!`);
