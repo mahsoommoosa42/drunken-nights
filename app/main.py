@@ -186,19 +186,171 @@ async def broadcast(room: Room, msg: dict) -> None:
 async def send(ws: WebSocket, msg: dict) -> None:
     await ws.send_text(json.dumps(msg))
 
+async def send_to_host(room: Room, msg: dict) -> None:
+    host = room.host
+    if not host or not host.ws:
+        return
+    try:
+        await host.ws.send_text(json.dumps(msg))
+    except Exception:
+        host.connected = False
+        host.ws = None
+        host.disconnect_time = time.time()
+
 async def broadcast_lobby(room: Room) -> None:
+    host_name = room.host.name if room.host else ""
     all_players = [
         {"name": p.name, "connected": p.connected}
         for p in room.players
     ]
-    await broadcast(room, {
-        "type": "lobby",
-        "players": room.player_names,
-        "all_players": all_players,
-        "host": room.host.name if room.host else "",
-        "room_code": room.code,
-        "spicy_mode": room.spicy_mode,
+    connected_players = [
+        {"name": p.name, "connected": True}
+        for p in room.connected_players
+    ]
+    for p in room.players:
+        if not p.connected or not p.ws:
+            continue
+        payload = {
+            "type": "lobby",
+            "players": room.player_names,
+            "all_players": all_players if p.is_host else connected_players,
+            "host": host_name,
+            "room_code": room.code,
+            "spicy_mode": room.spicy_mode,
+        }
+        try:
+            await p.ws.send_text(json.dumps(payload))
+        except Exception:
+            p.connected = False
+            p.ws = None
+            p.disconnect_time = time.time()
+
+
+_COLLECT_GAMES = {
+    "never_have_i_ever": "answers",
+    "would_you_rather": "votes",
+    "most_likely_to": "votes",
+    "trivia": "answers",
+    "hot_takes": "votes",
+}
+
+
+def _answer_dict(room: Room) -> dict[str, str] | None:
+    key = _COLLECT_GAMES.get(room.game.game_id)
+    if key == "answers":
+        return room.game.answers
+    if key == "votes":
+        return room.game.votes
+    return None
+
+
+def _round_complete(room: Room) -> bool:
+    d = _answer_dict(room)
+    if d is None:
+        return False
+    cp = room.connected_players
+    if not cp:
+        return False
+    return all(p.name in d for p in cp)
+
+
+async def broadcast_answer_progress(room: Room) -> None:
+    if room.game.game_id not in _COLLECT_GAMES:
+        return
+    d = _answer_dict(room)
+    if d is None:
+        return
+    answered = [p.name for p in room.connected_players if p.name in d]
+    remaining = [p.name for p in room.connected_players if p.name not in d]
+    await send_to_host(room, {
+        "type": "answer_progress",
+        "game": room.game.game_id,
+        "answered": answered,
+        "remaining": remaining,
+        "answered_count": len(answered),
+        "total": len(room.connected_players),
     })
+
+
+async def check_and_reveal(room: Room) -> None:
+    g = room.game
+    if g.data.get("_revealed") is True or not _round_complete(room):
+        return
+
+    gid = g.game_id
+    msg: dict[str, Any] | None = None
+    if gid == "never_have_i_ever":
+        drinkers = [n for n, v in g.answers.items() if v == "drank"]
+        msg = {
+            "type": "reveal",
+            "game": gid,
+            "drinkers": drinkers,
+            "total": len(room.connected_players),
+        }
+    elif gid == "would_you_rather":
+        a_voters = [n for n, v in g.votes.items() if v == "a"]
+        b_voters = [n for n, v in g.votes.items() if v == "b"]
+        tied = len(a_voters) == len(b_voters)
+        minority = [] if tied else (a_voters if len(a_voters) < len(b_voters) else b_voters)
+        msg = {
+            "type": "reveal",
+            "game": gid,
+            "a_voters": a_voters,
+            "b_voters": b_voters,
+            "minority": minority,
+            "option_a": g.data.get("options", ["", ""])[0],
+            "option_b": g.data.get("options", ["", ""])[1],
+        }
+    elif gid == "most_likely_to":
+        tally: dict[str, int] = {}
+        for v in g.votes.values():
+            tally[v] = tally.get(v, 0) + 1
+        max_votes = max(tally.values())
+        winners = [n for n, c in tally.items() if c == max_votes]
+        msg = {
+            "type": "reveal",
+            "game": gid,
+            "tally": tally,
+            "winners": winners,
+            "scenario": g.data.get("scenario", ""),
+        }
+    elif gid == "trivia":
+        correct = g.data.get("answer", -1)
+        results: dict[str, bool] = {}
+        choices: dict[str, int] = {}
+        for n, a in g.answers.items():
+            results[n] = int(a) == correct
+            choices[n] = int(a)
+        msg = {
+            "type": "reveal",
+            "game": gid,
+            "correct_index": correct,
+            "results": results,
+            "choices": choices,
+            "question": g.data.get("question", ""),
+            "options": g.data.get("options", []),
+        }
+    elif gid == "hot_takes":
+        agree = [n for n, v in g.votes.items() if v == "agree"]
+        disagree = [n for n, v in g.votes.items() if v == "disagree"]
+        tied = len(agree) == len(disagree)
+        minority = [] if tied else (agree if len(agree) < len(disagree) else disagree)
+        msg = {
+            "type": "reveal",
+            "game": gid,
+            "agree": agree,
+            "disagree": disagree,
+            "minority": minority,
+            "tied": tied,
+            "take": g.data.get("take", ""),
+        }
+
+    if msg is None:
+        return
+
+    await broadcast(room, msg)
+    g.data["_revealed"] = True
+    g.data["_last_event"] = msg
 
 
 # ─── Game Logic ──────────────────────────────────────────────────────────────
@@ -238,41 +390,48 @@ async def send_next_round(room: Room) -> None:
     gid = g.game_id
     g.votes = {}
     g.answers = {}
+    g.data["_revealed"] = False
     current = room.current_player_name()
     sp = room.spicy_mode
 
     if gid == "truth_or_dare":
-        await broadcast(room, {
+        msg = {
             "type": "round",
             "game": gid,
             "current_player": current,
             "phase": "choose",
             "round": g.round_num,
-        })
+        }
+        await broadcast(room, msg)
+        g.data["_last_event"] = msg
 
     elif gid == "never_have_i_ever":
         key = "nhie_s" if sp else "nhie"
         deck = room.ensure_deck(key, _pick(room, "never_have_i_ever"))
         statement = deck.draw()
-        await broadcast(room, {
+        msg = {
             "type": "round",
             "game": gid,
             "statement": statement,
             "round": g.round_num,
-        })
+        }
+        await broadcast(room, msg)
+        g.data["_last_event"] = msg
 
     elif gid == "would_you_rather":
         key = "wyr_s" if sp else "wyr"
         deck = room.ensure_deck(key, _pick(room, "would_you_rather"))
         pair = deck.draw()
         g.data["options"] = list(pair)
-        await broadcast(room, {
+        msg = {
             "type": "round",
             "game": gid,
             "option_a": pair[0],
             "option_b": pair[1],
             "round": g.round_num,
-        })
+        }
+        await broadcast(room, msg)
+        g.data["_last_event"] = msg
 
     elif gid == "kings_cup":
         full_deck = [(val, suit) for val in KINGS_CUP_RULES for suit in SUITS]
@@ -281,7 +440,7 @@ async def send_next_round(room: Room) -> None:
         rule_info = KINGS_CUP_RULES[card_val]
         if card_val == "K":
             room.kings_drawn += 1
-        await broadcast(room, {
+        msg = {
             "type": "round",
             "game": gid,
             "card": card_val,
@@ -292,20 +451,24 @@ async def send_next_round(room: Room) -> None:
             "current_player": current,
             "kings_drawn": room.kings_drawn,
             "round": g.round_num,
-        })
+        }
+        await broadcast(room, msg)
+        g.data["_last_event"] = msg
 
     elif gid == "most_likely_to":
         key = "mlt_s" if sp else "mlt"
         deck = room.ensure_deck(key, _pick(room, "most_likely_to"))
         scenario = deck.draw()
         g.data["scenario"] = scenario
-        await broadcast(room, {
+        msg = {
             "type": "round",
             "game": gid,
             "scenario": scenario,
             "players": room.player_names,
             "round": g.round_num,
-        })
+        }
+        await broadcast(room, msg)
+        g.data["_last_event"] = msg
 
     elif gid == "categories":
         key = "cat_s" if sp else "cat"
@@ -313,14 +476,16 @@ async def send_next_round(room: Room) -> None:
         category = deck.draw()
         g.data["category"] = category
         g.timer_end = time.time() + 30
-        await broadcast(room, {
+        msg = {
             "type": "round",
             "game": gid,
             "category": category,
             "current_player": current,
             "timer_seconds": 30,
             "round": g.round_num,
-        })
+        }
+        await broadcast(room, msg)
+        g.data["_last_event"] = msg
 
     elif gid == "trivia":
         deck = room.ensure_deck("trivia", _pick(room, "trivia"))
@@ -328,25 +493,29 @@ async def send_next_round(room: Room) -> None:
         g.data["answer"] = q["answer"]
         g.data["question"] = q["q"]
         g.data["options"] = q["options"]
-        await broadcast(room, {
+        msg = {
             "type": "round",
             "game": gid,
             "question": q["q"],
             "options": q["options"],
             "round": g.round_num,
-        })
+        }
+        await broadcast(room, msg)
+        g.data["_last_event"] = msg
 
     elif gid == "hot_takes":
         key = "ht_s" if sp else "ht"
         deck = room.ensure_deck(key, _pick(room, "hot_takes"))
         take = deck.draw()
         g.data["take"] = take
-        await broadcast(room, {
+        msg = {
             "type": "round",
             "game": gid,
             "take": take,
             "round": g.round_num,
-        })
+        }
+        await broadcast(room, msg)
+        g.data["_last_event"] = msg
 
     elif gid == "taboo":
         key = "taboo_s" if sp else "taboo"
@@ -355,6 +524,15 @@ async def send_next_round(room: Room) -> None:
         g.data["word"] = card["word"]
         g.data["forbidden"] = card["forbidden"]
         g.timer_end = time.time() + 60
+        g.data["_last_event"] = {
+            "type": "round",
+            "game": "taboo",
+            "word": card["word"],
+            "forbidden": card["forbidden"],
+            "current_player": current,
+            "timer_seconds": 60,
+            "round": g.round_num,
+        }
 
         for p in room.connected_players:
             if p.name == current:
@@ -406,21 +584,24 @@ async def send_next_round(room: Room) -> None:
         key = "wa_s" if sp else "wa"
         deck = room.ensure_deck(key, _pick(room, "word_association"))
         word = deck.draw()
-        await broadcast(room, {
+        msg = {
             "type": "round",
             "game": gid,
             "starter_word": word,
             "current_player": current,
             "round": g.round_num,
-        })
+        }
+        await broadcast(room, msg)
+        g.data["_last_event"] = msg
+
+    if gid in _COLLECT_GAMES:
+        await broadcast_answer_progress(room)
 
 
 async def handle_game_action(room: Room, player_name: str, data: dict) -> None:
     g = room.game
     gid = g.game_id
     action = data.get("action", "")
-
-    connected_count = len(room.connected_players)
 
     if gid == "truth_or_dare" and action == "pick":
         sp = room.spicy_mode
@@ -444,105 +625,32 @@ async def handle_game_action(room: Room, player_name: str, data: dict) -> None:
     elif gid == "never_have_i_ever" and action == "drink":
         drank = data.get("drank", False)
         g.answers[player_name] = "drank" if drank else "safe"
-        if len(g.answers) >= connected_count:
-            drinkers = [n for n, v in g.answers.items() if v == "drank"]
-            await broadcast(room, {
-                "type": "reveal",
-                "game": gid,
-                "drinkers": drinkers,
-                "total": len(room.connected_players),
-            })
+        await broadcast_answer_progress(room)
+        await check_and_reveal(room)
 
     elif gid == "would_you_rather" and action == "vote":
         choice = data.get("choice", "a")
         g.votes[player_name] = choice
-        if len(g.votes) >= connected_count:
-            a_voters = [n for n, v in g.votes.items() if v == "a"]
-            b_voters = [n for n, v in g.votes.items() if v == "b"]
-            tied = len(a_voters) == len(b_voters)
-            if tied:
-                minority = []
-            else:
-                minority = a_voters if len(a_voters) < len(b_voters) else b_voters
-            await broadcast(room, {
-                "type": "reveal",
-                "game": gid,
-                "a_voters": a_voters,
-                "b_voters": b_voters,
-                "minority": minority,
-                "option_a": g.data.get("options", ["", ""])[0],
-                "option_b": g.data.get("options", ["", ""])[1],
-            })
+        await broadcast_answer_progress(room)
+        await check_and_reveal(room)
 
     elif gid == "most_likely_to" and action == "vote":
         voted_for = data.get("voted_for", "")
         g.votes[player_name] = voted_for
-        await broadcast(room, {
-            "type": "vote_update",
-            "game": gid,
-            "votes_in": len(g.votes),
-            "total": connected_count,
-        })
-        if len(g.votes) >= connected_count:
-            tally: dict[str, int] = {}
-            for v in g.votes.values():
-                tally[v] = tally.get(v, 0) + 1
-            max_votes = max(tally.values())
-            winners = [n for n, c in tally.items() if c == max_votes]
-            await broadcast(room, {
-                "type": "reveal",
-                "game": gid,
-                "tally": tally,
-                "winners": winners,
-                "scenario": g.data.get("scenario", ""),
-            })
+        await broadcast_answer_progress(room)
+        await check_and_reveal(room)
 
     elif gid == "trivia" and action == "answer":
         answer_idx = data.get("answer", -1)
         g.answers[player_name] = str(answer_idx)
-        await broadcast(room, {
-            "type": "vote_update",
-            "game": gid,
-            "votes_in": len(g.answers),
-            "total": connected_count,
-        })
-        if len(g.answers) >= connected_count:
-            correct = g.data.get("answer", -1)
-            results: dict[str, bool] = {}
-            choices: dict[str, int] = {}
-            for n, a in g.answers.items():
-                results[n] = int(a) == correct
-                choices[n] = int(a)
-            await broadcast(room, {
-                "type": "reveal",
-                "game": gid,
-                "correct_index": correct,
-                "results": results,
-                "choices": choices,
-                "question": g.data.get("question", ""),
-                "options": g.data.get("options", []),
-            })
+        await broadcast_answer_progress(room)
+        await check_and_reveal(room)
 
     elif gid == "hot_takes" and action == "vote":
         choice = data.get("choice", "agree")
         g.votes[player_name] = choice
-        if len(g.votes) >= len(room.connected_players):
-            agree = [n for n, v in g.votes.items() if v == "agree"]
-            disagree = [n for n, v in g.votes.items() if v == "disagree"]
-            tied = len(agree) == len(disagree)
-            if tied:
-                minority = []
-            else:
-                minority = agree if len(agree) < len(disagree) else disagree
-            await broadcast(room, {
-                "type": "reveal",
-                "game": gid,
-                "agree": agree,
-                "disagree": disagree,
-                "minority": minority,
-                "tied": tied,
-                "take": g.data.get("take", ""),
-            })
+        await broadcast_answer_progress(room)
+        await check_and_reveal(room)
 
     elif gid == "taboo" and action in ("correct", "skip", "timeout"):
         word = g.data.get("word", "")
@@ -635,9 +743,34 @@ async def websocket_endpoint(ws: WebSocket, room_code: str, player_name: str):
             "round": g.round_num,
             "message": "Game in progress — you're back in!",
         })
+        last_event = g.data.get("_last_event")
+        if isinstance(last_event, dict):
+            if last_event.get("game") == "taboo" and last_event.get("type") == "round":
+                if player.name == last_event.get("current_player"):
+                    await send(ws, {
+                        "type": "round",
+                        "game": "taboo",
+                        "role": "describer",
+                        "word": last_event.get("word", ""),
+                        "forbidden": last_event.get("forbidden", []),
+                        "current_player": last_event.get("current_player", ""),
+                        "timer_seconds": last_event.get("timer_seconds", 60),
+                        "round": last_event.get("round", g.round_num),
+                    })
+                else:
+                    await send(ws, {
+                        "type": "round",
+                        "game": "taboo",
+                        "role": "guesser",
+                        "current_player": last_event.get("current_player", ""),
+                        "timer_seconds": last_event.get("timer_seconds", 60),
+                        "round": last_event.get("round", g.round_num),
+                    })
+            else:
+                await send(ws, last_event)
     # Notify others that this player reconnected
     if existing:
-        await broadcast(room, {
+        await send_to_host(room, {
             "type": "player_reconnected",
             "player": player_name,
         })
@@ -694,13 +827,15 @@ async def websocket_endpoint(ws: WebSocket, room_code: str, player_name: str):
                 if player.is_host and room.connected_players:
                     new_host = room.connected_players[0]
                     new_host.is_host = True
-                    await broadcast_lobby(room)
                     await broadcast(room, {
                         "type": "host_transferred",
                         "old_host": player.name,
                         "new_host": new_host.name,
                     })
-                elif room.connected_players:
+                if room.game.game_id:
+                    await broadcast_answer_progress(room)
+                    await check_and_reveal(room)
+                if room.connected_players:
                     await broadcast_lobby(room)
                 await broadcast(room, {
                     "type": "player_left",
@@ -727,11 +862,14 @@ async def websocket_endpoint(ws: WebSocket, room_code: str, player_name: str):
         player.disconnect_time = time.time()
         room.last_activity = time.time()
         persist_room(room)
+        if room.game.game_id:
+            await broadcast_answer_progress(room)
+            await check_and_reveal(room)
         if room.connected_players:
             if player.is_host:
                 _schedule_host_transfer(room, player)
             await broadcast_lobby(room)
-            await broadcast(room, {
+            await send_to_host(room, {
                 "type": "player_disconnected",
                 "player": player_name,
                 "new_host": room.host.name if room.host else "",
